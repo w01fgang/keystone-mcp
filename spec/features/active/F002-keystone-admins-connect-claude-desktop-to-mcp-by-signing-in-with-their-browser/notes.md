@@ -18,7 +18,8 @@ Findings from `@keystone-6/core` 6.5.3, `@keystone-6/auth` 8.1.0 (scratch app at
 ## SDK `server/auth`
 
 - `mcpAuthRouter` needs a static issuer URL at construction and mounts `/authorize`, `/token`, `/register`, `/revoke` at the app root. Keystone gives `extendExpressApp` no public URL, so the package does not use the router.
-- The package uses the SDK handlers one by one: `authorizationHandler` (S256 only, `redirectUriMatches`: exact match, port ignored only for loopback hosts), `tokenHandler` (PKCE check with `challengeForAuthorizationCode`, form-urlencoded body, `invalid_grant` errors), `clientRegistrationHandler` (DCR), `revocationHandler`, and `requireBearerAuth` (401 with `resource_metadata`, `expectedResource` check). Each handler has `express-rate-limit` per IP by default; the package keeps the defaults.
+- The package uses the SDK handlers one by one: `authorizationHandler` (S256 only, `redirectUriMatches`: exact match, port ignored only for loopback hosts), `tokenHandler` (PKCE check with `challengeForAuthorizationCode`, form-urlencoded body, `invalid_grant` errors), `clientRegistrationHandler` (DCR) and `revocationHandler`. Each handler has `express-rate-limit` per IP by default; the package keeps the defaults.
+- `requireBearerAuth` takes a static `resourceMetadataUrl`, so `McpOAuth.authenticate` in `src/auth.ts` checks the bearer itself and answers the same `401` shape. It also answers `401` when the token's Keystone session has ended.
 - `OAuthServerProvider` is the seam: an in-memory provider in `src/auth.ts` owns clients, pending sign-ins, codes, access tokens and refresh tokens.
 
 ## Design decisions
@@ -30,3 +31,10 @@ Findings from `@keystone-6/core` 6.5.3, `@keystone-6/auth` 8.1.0 (scratch app at
 - Every `POST <path>` needs a token. An app without a password `authenticate…WithPassword` mutation fails at mount with a message.
 - Registered redirect URIs must be `https:` or loopback `http:`.
 - The consent page names the client, shows the redirect host, warns when it is a loopback host, and sends `X-Frame-Options: DENY` and `Cache-Control: no-store`.
+
+## Open questions
+
+- Claude CIMD ("Use Claude's published identity") is not supported. The metadata does not advertise `client_id_metadata_document_supported`, so Claude falls back to DCR; the README tells the admin to choose "Register automatically".
+- The SDK rate limits count per client IP. All Claude traffic comes from `160.79.104.0/21`, so a large team shares 20 registrations per hour and 50 token requests per 15 minutes per egress IP.
+- The password mutation stays in the `callTool` catalog, as before this feature.
+- The live test in Claude Desktop through a public HTTPS tunnel is the owner's; the scripted flow used the SDK client against `http://localhost:3123`.
