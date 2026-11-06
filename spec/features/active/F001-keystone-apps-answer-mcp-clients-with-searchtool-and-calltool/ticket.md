@@ -49,3 +49,5 @@ A Keystone app author installs the `keystone-mcp` npm package and passes `keysto
 - `statelessSessions` accepts `Authorization: Bearer` and the session cookie. MCP clients send the bearer token.
 - The plan holds six tasks with exact tests and file layout: scaffold, catalog, search, call, server, and the Express mount with the README. Task 1 step 1 (`git init`) is done.
 - Source: https://app.notion.com/p/keystone-mcp-implementation-plan-40fdf4935ecd8169939ef4e4ae4017ba
+- The Notion page needs a login, so a worker cannot read it. This ticket and `.agents/limen/styleguide.md` are the contract.
+- Live proof uses a scratch Keystone 6 app at `/tmp/keystone-mcp-smoke`, outside Git, with SQLite and a `file:` dependency on the worktree. Delete it after the feature closes.
