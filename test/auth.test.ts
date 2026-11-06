@@ -139,6 +139,29 @@ describe('OAuth for /mcp', () => {
     expect(location.searchParams.get('code')).toBeTruthy();
   });
 
+  it('answers 500 when Keystone fails during sign-in, instead of leaving the request open', async () => {
+    const { base, commonContext } = await start();
+    const { html } = await openSignIn(base);
+    commonContext.withRequest = () => Promise.reject(new Error('the database is down'));
+    const response = await submitSignIn(base, {
+      transaction: transactionOf(html),
+      identity: ADMIN.email,
+      secret: ADMIN.password,
+      decision: 'allow',
+    });
+    expect(response.status).toBe(500);
+    expect(response.headers.get('location')).toBeNull();
+  });
+
+  it('marks the metadata documents as uncacheable and varying by Host, because they name the request host', async () => {
+    const { base } = await start();
+    for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server']) {
+      const response = await fetch(base + path);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('vary')).toMatch(/\bHost\b/);
+    }
+  });
+
   it('redirects with access_denied when the user cancels', async () => {
     const { base } = await start();
     const { html } = await openSignIn(base);

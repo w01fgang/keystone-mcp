@@ -209,7 +209,8 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
   // Discovery documents. The issuer and the resource come from the request, because Keystone gives
   // extendExpressApp no public URL. Behind a TLS proxy, Express `trust proxy` makes req.protocol https.
   const sendMetadata = (build: (req: Request) => object) => (req: Request, res: Response) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    // The documents name the request host, so a shared cache must not serve one host's copy to another.
+    res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store', Vary: 'Host' });
     res.json(build(req));
   };
   const protectedResource = sendMetadata((req): OAuthProtectedResourceMetadata => ({
@@ -258,7 +259,14 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       res.redirect(302, redirectWith(params, { error: 'access_denied', error_description: 'The user denied access.' }));
       return;
     }
-    const sessionToken = await signIn(req, commonContext, mutation, String(body.identity ?? ''), String(body.secret ?? ''));
+    let sessionToken: string | undefined;
+    try {
+      sessionToken = await signIn(req, commonContext, mutation, String(body.identity ?? ''), String(body.secret ?? ''));
+    } catch (error) {
+      console.error('keystone-mcp: the sign-in request failed.', error);
+      res.status(500).type('text/plain').send('The sign-in failed because of a server error. Try again later.');
+      return;
+    }
     if (!sessionToken) {
       pending.attempts += 1;
       if (pending.attempts >= SIGN_IN_ATTEMPTS) pendingSignIns.delete(id);
