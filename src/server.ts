@@ -13,10 +13,16 @@ export interface McpServerOptions {
   /** The context of one HTTP request, from `context.withRequest`. `callTool` runs as its session. */
   context: McpContext;
   takeLimit: number;
+  /** When `false`, `searchTool` returns a tool error that names the `introspection` option. */
+  introspection: boolean;
 }
 
+const SEARCH_OFF_MESSAGE =
+  'searchTool is off: the keystoneMcp option introspection is false, its default when NODE_ENV is production. ' +
+  'Pass keystoneMcp({ introspection: true }) in keystone.ts to turn it on. callTool still runs operations by name.';
+
 /** Creates an MCP server with the tools `searchTool` and `callTool` for one request. */
-export function createMcpServer({ catalog, context, takeLimit }: McpServerOptions): McpServer {
+export function createMcpServer({ catalog, context, takeLimit, introspection }: McpServerOptions): McpServer {
   const server = new McpServer(SERVER_INFO);
 
   server.registerTool(
@@ -38,7 +44,8 @@ export function createMcpServer({ catalog, context, takeLimit }: McpServerOption
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ text, limit }) => textResult({ operations: searchCatalog(catalog, { text, limit }) }),
+    async ({ text, limit }) =>
+      introspection ? textResult({ operations: searchCatalog(catalog, { text, limit }) }) : errorResult(SEARCH_OFF_MESSAGE),
   );
 
   server.registerTool(

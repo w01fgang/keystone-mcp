@@ -4,13 +4,14 @@ import type { AddressInfo } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import express from 'express';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { keystoneMcp } from '../src/mount.js';
 import type { KeystoneMcpOptions } from '../src/types.js';
 import { fakeContext } from './schema.js';
 
 const servers: Server[] = [];
 afterEach(() => Promise.all(servers.splice(0).map((server) => once(server.close(), 'close'))));
+afterEach(() => vi.unstubAllEnvs());
 
 async function start(options?: KeystoneMcpOptions) {
   const fake = fakeContext();
@@ -79,5 +80,36 @@ describe('keystoneMcp', () => {
   it('rejects an invalid path or takeLimit', () => {
     expect(() => keystoneMcp({ path: 'mcp' })).toThrow(/path must start/);
     expect(() => keystoneMcp({ takeLimit: 0 })).toThrow(/takeLimit/);
+  });
+
+  it.each([
+    { nodeEnv: 'production', introspection: undefined, on: false },
+    { nodeEnv: 'production', introspection: true, on: true },
+    { nodeEnv: 'development', introspection: undefined, on: true },
+    { nodeEnv: 'development', introspection: false, on: false },
+  ])('with NODE_ENV=$nodeEnv and introspection $introspection, searchTool on is $on', async ({ nodeEnv, introspection, on }) => {
+    vi.stubEnv('NODE_ENV', nodeEnv);
+    const { base } = await start({ introspection });
+    const client = await connect(`${base}/mcp`);
+    const result = await client.callTool({ name: 'searchTool', arguments: { text: 'posts' } });
+    const text = (result.content as { text: string }[])[0].text;
+    if (on) {
+      expect(result.isError).toBeFalsy();
+      expect(JSON.parse(text).operations[0].name).toBe('posts');
+    } else {
+      expect(result.isError).toBe(true);
+      expect(text).toContain('keystoneMcp({ introspection: true })');
+    }
+    await client.close();
+  });
+
+  it('runs callTool while searchTool is off', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { base, runs } = await start();
+    const client = await connect(`${base}/mcp`);
+    const result = await client.callTool({ name: 'callTool', arguments: { operation: 'posts', args: { take: 2 }, select: ['id'] } });
+    expect(result.isError).toBeFalsy();
+    expect(runs.at(-1)?.variables).toEqual({ take: 2 });
+    await client.close();
   });
 });

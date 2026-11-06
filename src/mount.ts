@@ -5,7 +5,13 @@ import { createMcpServer } from './server.js';
 import type { KeystoneMcpOptions, McpContext, ResolvedOptions } from './types.js';
 
 function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
-  const resolved = { path: options.path ?? '/mcp', queriesOnly: options.queriesOnly ?? false, takeLimit: options.takeLimit ?? 50 };
+  const resolved = {
+    path: options.path ?? '/mcp',
+    queriesOnly: options.queriesOnly ?? false,
+    takeLimit: options.takeLimit ?? 50,
+    // Apollo Server's default. Keystone passes extendExpressApp no config, so the app's apolloConfig is out of reach.
+    introspection: options.introspection ?? process.env.NODE_ENV !== 'production',
+  };
   if (!resolved.path.startsWith('/')) throw new TypeError(`keystoneMcp: path must start with "/", got "${resolved.path}".`);
   if (!Number.isInteger(resolved.takeLimit) || resolved.takeLimit < 1) {
     throw new TypeError(`keystoneMcp: takeLimit must be a positive integer, got ${resolved.takeLimit}.`);
@@ -19,7 +25,7 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
  * that runs as the session of the request.
  */
 export function keystoneMcp(options: KeystoneMcpOptions = {}) {
-  const { path, queriesOnly, takeLimit } = resolveOptions(options);
+  const { path, queriesOnly, takeLimit, introspection } = resolveOptions(options);
 
   return function extendExpressApp(app: Express, commonContext: McpContext): void {
     // Keystone calls extendExpressApp again after each dev rebuild, with the new schema.
@@ -28,7 +34,7 @@ export function keystoneMcp(options: KeystoneMcpOptions = {}) {
     app.post(path, express.json(), async (req: Request, res: Response) => {
       try {
         const context = await commonContext.withRequest(req, res);
-        const server = createMcpServer({ catalog, context, takeLimit });
+        const server = createMcpServer({ catalog, context, takeLimit, introspection });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => {
           void transport.close();
