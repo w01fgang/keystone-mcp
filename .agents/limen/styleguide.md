@@ -14,6 +14,7 @@
 - A test name states the behavior, for example `it('rejects an unknown field path')`.
 - Throw `CallError` for a request that the catalog rejects. The MCP server turns it, and a rejection from `graphql.run`, into a tool result with `isError: true`.
 - Exact pinned versions for the MCP SDK (`@modelcontextprotocol/sdk` 1.32.2). `express` and `graphql` are peer dependencies.
+- Search code with Jevgrep first: `jg "how does the request context reach graphql.run?" [root]`, here or in the Keystone checkout. Use grep only for an exact symbol, string or filename. When a job delegates discovery, the instruction names `jg` and the root.
 
 ## Avoid
 
