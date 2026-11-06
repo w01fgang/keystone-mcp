@@ -9,7 +9,7 @@ import type { McpContext } from '../src/types.js';
 import { fakeContext, schema } from './schema.js';
 
 async function connect(context: McpContext, queriesOnly = false) {
-  const server = createMcpServer({ catalog: buildCatalog(schema, { queriesOnly }), context, takeLimit: 50 });
+  const server = createMcpServer({ catalog: buildCatalog(schema, { queriesOnly }), context, takeLimit: 50, introspection: true });
   const client = new Client({ name: 'test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

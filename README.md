@@ -56,6 +56,7 @@ server: {
 | `path`        | `/mcp`  | The HTTP path of the endpoint.                                            |
 | `queriesOnly` | `false` | When `true`, the catalog holds queries only, and `callTool` cannot mutate. |
 | `takeLimit`   | `50`    | The maximum `take` that `callTool` sends, in either direction. A missing `take` becomes this. A negative `take` reads from the end and stops at `-takeLimit`. |
+| `introspection` | `NODE_ENV !== 'production'` | When `false`, `searchTool` returns a tool error that names this option, and `callTool` still runs operations by name. The default follows Apollo Server's `introspection` default. Keystone does not pass the app's `graphql.apolloConfig` to `extendExpressApp`, so to match it, pass the same value to both. |
 
 ## Behavior
 
