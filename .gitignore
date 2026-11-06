@@ -1,1 +1,3 @@
 /.limen/
+node_modules/
+dist/
