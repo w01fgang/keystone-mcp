@@ -4,12 +4,20 @@
 
 ## Shape
 
-- <!-- How modules, files, and functions should be cut in this repository. -->
+- One module per responsibility in `src/`: `types.ts`, `catalog.ts`, `search.ts`, `call.ts`, `server.ts`, `mount.ts`. `src/index.ts` only re-exports.
+- Pure functions build data (`buildCatalog`, `searchCatalog`, `buildCall`). Only `server.ts` and `mount.ts` touch the MCP SDK and Express.
+- Tests live in `test/`, one file per module, and share the GraphQL fixture in `test/schema.ts`.
 
 ## Prefer
 
-- <!-- Idioms this codebase wants: functional style, immutability, error handling, naming. -->
+- TypeScript with `strict`, ES modules (`"type": "module"`, `Node16` resolution), and Vitest.
+- A test name states the behavior, for example `it('rejects an unknown field path')`.
+- Throw `CallError` for a request that the catalog rejects. The MCP server turns it, and a rejection from `graphql.run`, into a tool result with `isError: true`.
+- Exact pinned versions for the MCP SDK (`@modelcontextprotocol/sdk` 1.32.2). `express` and `graphql` are peer dependencies.
 
 ## Avoid
 
-- <!-- Patterns that look natural to models and make a mess here. -->
+- Edits to `@keystone-6/core` or to the Keystone checkout.
+- `context.sudo()` and `context.internal` in a request path.
+- `extendHttpServer`: dev rebuilds drop it.
+- A JSON body parser outside the MCP path. Keystone attaches its own parser on the GraphQL path.

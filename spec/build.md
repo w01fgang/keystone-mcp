@@ -8,15 +8,17 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 ## TRACK
 
-- <!-- Current stretch: intended outcome, why it matters, and material constraint. At most three bullets. -->
+- 🟠 Ship `keystone-mcp` 0.1.0 (F001): a Keystone app mounts `searchTool` and `callTool` on `POST /mcp`, so MCP clients query the app through its GraphQL schema. Constraint: no change to `@keystone-6/core`; the mount uses `extendExpressApp` only.
 
 ## NOW
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F001-keystone-apps-answer-mcp-clients-with-searchtool-and-calltool` (🟠 ACTIVE): Keystone apps answer MCP clients with searchTool and callTool
+
 ## NEXT
 
-- `FNNN-slug` (PLANNED): <!-- One clause: likely outcome, dependency, or sequencing reason. -->
+- No planned ticket. Publishing to npm waits for an explicit request.
 
 ## PROVEN
 

@@ -4,10 +4,13 @@
 
 ## Product principles
 
-- <!-- Durable principle: user, value, boundary, or tradeoff. -->
-- <!-- One compact, decision-useful fragment per line. -->
+- `keystone-mcp` is a standalone npm package. It mounts an MCP endpoint on the existing Express server of a Keystone 6 app.
+- The package does not modify `@keystone-6/core`. It uses only the public hook `server.extendExpressApp` and the public context.
+- The MCP surface is two tools: `searchTool` finds GraphQL operations, and `callTool` runs one operation.
+- The catalog comes from the public GraphQL schema of the app. Access control stays with Keystone: `callTool` runs as the session of the request, never through `sudo` or `internal`.
+- The app author controls the surface with three options: `path` (default `/mcp`), `queriesOnly` (default `false`) and `takeLimit` (default `50`).
 
 ## Current direction
 
-- <!-- Current stretch: outcome, why now, and material constraint. -->
-- <!-- Near-term priority or sequencing rule, if needed. -->
+- Ship the first version of the package (F001): catalog, search, call, MCP server, and the Express mount, with a README for the `keystone.ts` wiring.
+- Apps use the package through a `file:` dependency. Publishing to npm waits for an explicit request.
