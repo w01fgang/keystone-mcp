@@ -1,4 +1,10 @@
 ---
+touches:
+  - keystone-mcp.catalog
+  - keystone-mcp.search
+  - keystone-mcp.call
+  - keystone-mcp.server
+  - keystone-mcp.mount
 opened: 2026-11-06
 ---
 
