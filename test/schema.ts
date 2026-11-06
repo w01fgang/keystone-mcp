@@ -1,4 +1,6 @@
-import { buildSchema } from 'graphql';
+import type { IncomingMessage } from 'node:http';
+import { buildSchema, graphql } from 'graphql';
+import type { McpContext } from '../src/types.js';
 
 /**
  * A GraphQL schema in the shape that Keystone 6 generates for two lists, `Post` and `User`,
@@ -156,3 +158,46 @@ export const sdl = /* GraphQL */ `
 `;
 
 export const schema = buildSchema(sdl);
+
+/** Root values for the fixture. `posts` returns as many rows as `take` asks for. */
+const rootValue = {
+  posts: ({ take }: { take?: number }) =>
+    Array.from({ length: take ?? 100 }, (_, i) => ({ id: String(i + 1), title: `Post ${i + 1}`, author: { name: 'Ada' } })),
+  postsCount: () => 100,
+  createPost: ({ data }: { data: { title?: string } }) => ({ id: '101', title: data.title }),
+};
+
+export interface RunRecord {
+  query: string;
+  variables?: Record<string, unknown>;
+}
+
+/**
+ * A Keystone-like context. `withRequest` returns a separate request context, and only the
+ * request context executes documents, so a test can see which context ran a call.
+ */
+export function fakeContext() {
+  const runs: RunRecord[] = [];
+  const requests: IncomingMessage[] = [];
+  const run = async ({ query, variables }: RunRecord) => {
+    runs.push({ query, variables });
+    const result = await graphql({ schema, source: query, variableValues: variables, rootValue });
+    if (result.errors?.length) throw result.errors[0];
+    return result.data;
+  };
+  const requestContext: McpContext = {
+    graphql: { schema, run },
+    withRequest: () => Promise.reject(new Error('withRequest on a request context')),
+  };
+  const commonContext: McpContext = {
+    graphql: {
+      schema,
+      run: () => Promise.reject(new Error('commonContext.graphql.run must not run a call')),
+    },
+    withRequest: async (req) => {
+      requests.push(req);
+      return requestContext;
+    },
+  };
+  return { commonContext, requestContext, runs, requests };
+}
