@@ -259,6 +259,9 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       res.redirect(302, redirectWith(params, { error: 'access_denied', error_description: 'The user denied access.' }));
       return;
     }
+    // Count the attempt before the password check, so guesses that arrive at the same time count too.
+    pending.attempts += 1;
+    if (pending.attempts >= SIGN_IN_ATTEMPTS) pendingSignIns.delete(id);
     let sessionToken: string | undefined;
     try {
       sessionToken = await signIn(req, commonContext, mutation, String(body.identity ?? ''), String(body.secret ?? ''));
@@ -268,8 +271,6 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       return;
     }
     if (!sessionToken) {
-      pending.attempts += 1;
-      if (pending.attempts >= SIGN_IN_ATTEMPTS) pendingSignIns.delete(id);
       sendSignInPage(res, 401, {
         id,
         client,

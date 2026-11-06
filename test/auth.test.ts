@@ -1,6 +1,7 @@
 import { once } from 'node:events';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { setTimeout as sleep } from 'node:timers/promises';
 import express from 'express';
 import { buildSchema } from 'graphql';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -137,6 +138,23 @@ describe('OAuth for /mcp', () => {
     expect(location.origin + location.pathname).toBe(CLAUDE_REDIRECT);
     expect(location.searchParams.get('state')).toBe('xyz');
     expect(location.searchParams.get('code')).toBeTruthy();
+  });
+
+  it('runs at most 5 password checks for one sign-in, also when the guesses arrive at the same time', async () => {
+    const { base, commonContext, runs } = await start();
+    const { html } = await openSignIn(base);
+    const withRequest = commonContext.withRequest;
+    commonContext.withRequest = async (req, res) => {
+      await sleep(20);
+      return withRequest(req, res);
+    };
+    const transaction = transactionOf(html);
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => submitSignIn(base, { transaction, identity: ADMIN.email, secret: `wrong-${i}`, decision: 'allow' })),
+    );
+    expect(runs.filter((run) => run.query.includes('KeystoneMcpSignIn'))).toHaveLength(5);
+    expect(responses.filter((response) => response.status === 401)).toHaveLength(5);
+    expect(responses.filter((response) => response.status === 400)).toHaveLength(5);
   });
 
   it('answers 500 when Keystone fails during sign-in, instead of leaving the request open', async () => {
