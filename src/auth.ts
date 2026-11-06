@@ -76,12 +76,16 @@ interface Expiring {
 interface PendingSignIn extends Expiring {
   client: OAuthClientInformationFull;
   params: AuthorizationParams;
+  /** `true` when the authorization request sent `redirect_uri`. The SDK fills `params.redirectUri` when it is absent. */
+  redirectUriSent: boolean;
   attempts: number;
 }
 
 interface CodeRecord extends Grant, Expiring {
   codeChallenge: string;
   redirectUri: string;
+  /** The code exchange must send `redirect_uri` when the authorization request sent it (RFC 6749 section 4.1.3). */
+  redirectUriSent: boolean;
 }
 
 type TokenRecord = Grant & Expiring;
@@ -161,7 +165,10 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
         throw new InvalidTargetError(`This server is the resource ${resource}.`);
       }
       const id = newToken();
-      remember(pendingSignIns, id, { client, params, attempts: 0, expiresAt: now() + SIGN_IN_SECONDS }, true);
+      // The SDK reads the authorization parameters from the body of a POST and from the query of a GET.
+      const sent = (req.method === 'POST' ? req.body : req.query) as Record<string, unknown> | undefined;
+      const redirectUriSent = sent?.redirect_uri !== undefined;
+      remember(pendingSignIns, id, { client, params, redirectUriSent, attempts: 0, expiresAt: now() + SIGN_IN_SECONDS }, true);
       sendSignInPage(res, 200, { id, client, redirectUri: params.redirectUri, mutation, action: paths.signIn });
     },
 
@@ -175,7 +182,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       const record = live(codes, code);
       codes.delete(code);
       if (!record || record.clientId !== client.client_id) throw new InvalidGrantError('The authorization code is not valid.');
-      if (redirectUri !== undefined && redirectUri !== record.redirectUri) {
+      if (redirectUri === undefined ? record.redirectUriSent : redirectUri !== record.redirectUri) {
         throw new InvalidGrantError('redirect_uri is not the one of the authorization request.');
       }
       if (resource && !sameResource(resource.href, record.resource)) throw new InvalidTargetError('resource does not match.');
@@ -253,7 +260,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       res.status(400).type('text/plain').send('This sign-in has expired. Start the connection again in your MCP client.');
       return;
     }
-    const { client, params } = pending;
+    const { client, params, redirectUriSent } = pending;
     if (body.decision !== 'allow') {
       pendingSignIns.delete(id);
       res.redirect(302, redirectWith(params, { error: 'access_denied', error_description: 'The user denied access.' }));
@@ -290,6 +297,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       scopes: params.scopes ?? [],
       codeChallenge: params.codeChallenge,
       redirectUri: params.redirectUri,
+      redirectUriSent,
       expiresAt: now() + CODE_SECONDS,
     });
     res.redirect(302, redirectWith(params, { code }));

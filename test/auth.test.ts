@@ -210,6 +210,20 @@ describe('OAuth for /mcp', () => {
     expect((await otherRedirect({ redirect_uri: 'https://claude.ai/other' })).body.error).toBe('invalid_grant');
   });
 
+  it('needs redirect_uri at the code exchange only when the authorization request sent one', async () => {
+    const { base } = await start();
+    const exchangeWithoutRedirect = async (authorizeRedirect: Record<string, string>) => {
+      const clientId = await register(base);
+      const { verifier, challenge } = pkce();
+      const page = await authorize(base, { client_id: clientId, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', ...authorizeRedirect });
+      const signedIn = await submitSignIn(base, { transaction: transactionOf(await page.text()), identity: ADMIN.email, secret: ADMIN.password, decision: 'allow' });
+      const code = new URL(signedIn.headers.get('location')!).searchParams.get('code')!;
+      return token(base, { grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier });
+    };
+    expect((await exchangeWithoutRedirect({ redirect_uri: CLAUDE_REDIRECT })).body.error).toBe('invalid_grant');
+    expect((await exchangeWithoutRedirect({})).status).toBe(200);
+  });
+
   it('rotates the refresh token: the new pair works and the old refresh token gets invalid_grant', async () => {
     const { base } = await start();
     const { clientId, refreshToken } = await signIn(base);
