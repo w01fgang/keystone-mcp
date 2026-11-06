@@ -8,7 +8,7 @@
 - The package does not modify `@keystone-6/core`. It uses only the public hook `server.extendExpressApp` and the public context.
 - The MCP surface is two tools: `searchTool` finds GraphQL operations, and `callTool` runs one operation.
 - The catalog comes from the public GraphQL schema of the app. Access control stays with Keystone: `callTool` runs as the session of the request, never through `sudo` or `internal`.
-- The app author controls the surface with three options: `path` (default `/mcp`), `queriesOnly` (default `false`) and `takeLimit` (default `50`).
+- The app author controls the surface with four options: `path` (default `/mcp`), `queriesOnly` (default `false`), `takeLimit` (default `50`) and `introspection` (default: off when `NODE_ENV=production`, on otherwise, as Apollo's default).
 
 ## Current direction
 
