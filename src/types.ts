@@ -32,6 +32,8 @@ export interface McpContext {
     schema: GraphQLSchema;
     run(args: { query: string; variables?: Record<string, unknown> }): Promise<unknown>;
   };
+  /** The session of a request context. `/mcp` refuses a request whose access token has no Keystone session. */
+  session?: unknown;
   withRequest(req: IncomingMessage, res?: ServerResponse): Promise<McpContext>;
 }
 

@@ -8,6 +8,15 @@ import { CallError, type Catalog, type McpContext } from './types.js';
 
 export const SERVER_INFO = { name: 'keystone-mcp', version: '0.1.0' };
 
+/** Sent in the `initialize` result, so the client knows the order of the tools and the Keystone naming. */
+export const INSTRUCTIONS =
+  'This server runs GraphQL operations on a Keystone app as the signed-in user; Keystone access control decides what is allowed. ' +
+  'Search first, then call: searchTool finds an operation and shows its arguments and field paths, and callTool runs it by name. ' +
+  'Each list, for example Post, has one-record operations that take where: { id }. ' +
+  'Read one record: callTool { operation: "post", args: { where: { id } }, select: [...] }. ' +
+  'Update one record: callTool { operation: "updatePost", args: { where: { id }, data: { ... } } }. ' +
+  'Delete one record: callTool { operation: "deletePost", args: { where: { id } } }.';
+
 export interface McpServerOptions {
   catalog: Catalog;
   /** The context of one HTTP request, from `context.withRequest`. `callTool` runs as its session. */
@@ -23,7 +32,7 @@ const SEARCH_OFF_MESSAGE =
 
 /** Creates an MCP server with the tools `searchTool` and `callTool` for one request. */
 export function createMcpServer({ catalog, context, takeLimit, introspection }: McpServerOptions): McpServer {
-  const server = new McpServer(SERVER_INFO);
+  const server = new McpServer(SERVER_INFO, { instructions: INSTRUCTIONS });
 
   server.registerTool(
     'searchTool',

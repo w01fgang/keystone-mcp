@@ -1,5 +1,6 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express, { type Express, type Request, type Response } from 'express';
+import { mountOAuth } from './auth.js';
 import { buildCatalog } from './catalog.js';
 import { createMcpServer } from './server.js';
 import type { KeystoneMcpOptions, McpContext, ResolvedOptions } from './types.js';
@@ -21,8 +22,8 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
 
 /**
  * Returns a function for `server.extendExpressApp` in `keystone.ts`.
- * It mounts the MCP endpoint at `options.path`. Each `POST` creates a stateless MCP server
- * that runs as the session of the request.
+ * It mounts the MCP endpoint at `options.path` and the OAuth authorization server for it. Each `POST` needs an
+ * access token and creates a stateless MCP server that runs as the Keystone session behind that token.
  */
 export function keystoneMcp(options: KeystoneMcpOptions = {}) {
   const { path, queriesOnly, takeLimit, introspection } = resolveOptions(options);
@@ -30,10 +31,12 @@ export function keystoneMcp(options: KeystoneMcpOptions = {}) {
   return function extendExpressApp(app: Express, commonContext: McpContext): void {
     // Keystone calls extendExpressApp again after each dev rebuild, with the new schema.
     const catalog = buildCatalog(commonContext.graphql.schema, { queriesOnly });
+    const oauth = mountOAuth(app, commonContext, path);
 
     app.post(path, express.json(), async (req: Request, res: Response) => {
       try {
-        const context = await commonContext.withRequest(req, res);
+        const context = await oauth.authenticate(req, res);
+        if (!context) return;
         const server = createMcpServer({ catalog, context, takeLimit, introspection });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => {
