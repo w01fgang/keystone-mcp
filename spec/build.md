@@ -9,6 +9,7 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 ## TRACK
 
 - 🟠 Ship `keystone-mcp` 0.1.0 (F001): a Keystone app mounts `searchTool` and `callTool` on `POST /mcp`, so MCP clients query the app through its GraphQL schema. Constraint: no change to `@keystone-6/core`; the mount uses `extendExpressApp` only.
+- **Standing models (owner, 2026-11-06):** every role (coordinator, worker, reviewer, picture) uses `anthropic/claude-opus-5-5` on OMP at `high`: `--engine omp --provider anthropic --model claude-opus-5-5 --thinking high`. Pi is not installed on this seat. Pass all four flags explicitly. Do not substitute another model when the route fails.
 
 ## NOW
 
