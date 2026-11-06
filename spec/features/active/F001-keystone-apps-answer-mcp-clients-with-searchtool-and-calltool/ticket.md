@@ -22,7 +22,7 @@ A Keystone app author installs the `keystone-mcp` npm package and passes `keysto
 - Input-type summaries walk two levels. They omit the fields `AND`, `OR` and `NOT`, and an input object that has a field `every`, `some` or `none`.
 - Selectable paths are the scalar and enum fields of the return type, plus one level of scalar and enum fields on object and list-of-object fields. An output field with a non-null argument and no default is not a path.
 - `searchTool` scores name, description, return type and field paths. The default limit is 10, and the maximum limit is 25.
-- `searchTool` follows Apollo's introspection default: off when `NODE_ENV=production`, on otherwise. `options.introspection` overrides it, as Apollo's `introspection` option does. If the app's own Apollo introspection setting is reachable through public API, it decides instead.
+- `searchTool` follows Apollo's introspection default: off when `NODE_ENV=production`, on otherwise. `options.introspection` overrides it, as Apollo's `introspection` option does. Keystone passes `extendExpressApp` no config, so the app's own Apollo setting is out of reach.
 - `callTool` turns one catalog entry into a GraphQL document, clamps `take` to `takeLimit`, and runs the document with `context.withRequest` and then `context.graphql.run`.
 - The mount uses `extendExpressApp` only, and attaches the JSON parser on the MCP path only.
 
