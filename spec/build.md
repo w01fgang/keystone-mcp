@@ -15,8 +15,6 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
-- `F001-keystone-apps-answer-mcp-clients-with-searchtool-and-calltool` (🟠 ACTIVE): Keystone apps answer MCP clients with searchTool and callTool
-
 ## NEXT
 
 - No planned ticket. Publishing to npm waits for an explicit request.
@@ -24,3 +22,6 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 ## PROVEN
 
 <!-- Generated from spec/features/done/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
+
+- `F001-keystone-apps-answer-mcp-clients-with-searchtool-and-calltool` (🟢 PROVEN): Keystone apps answer MCP clients with searchTool and callTool; landed 2026-11-06
+- 2026-11: 1 landed. spec/features/done/2026-11/

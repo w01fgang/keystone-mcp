@@ -6,6 +6,7 @@ touches:
   - keystone-mcp.server
   - keystone-mcp.mount
 opened: 2026-11-06
+landed: 2026-11-06
 ---
 
 # F001 · Keystone apps answer MCP clients with searchTool and callTool
