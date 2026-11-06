@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { GraphQLError, Kind } from 'graphql';
 import { z } from 'zod';
 import { buildCall, type Call } from './call.js';
 import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, searchCatalog } from './search.js';
@@ -65,7 +66,7 @@ export function createMcpServer({ catalog, context, takeLimit }: McpServerOption
         const data = await context.graphql.run({ query: call.document, variables: call.variables });
         return textResult(data);
       } catch (error) {
-        return errorResult(error instanceof Error ? error.message : String(error));
+        return errorResult(JSON.stringify({ errors: [formatGraphQLError(error)] }));
       }
     },
   );
@@ -79,4 +80,36 @@ function textResult(value: unknown): CallToolResult {
 
 function errorResult(message: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: message }] };
+}
+
+/**
+ * Formats a rejection from `graphql.run` as Keystone's `/api/graphql` formats the same error, so a client sees
+ * the same message and code on both paths. Keystone does not export its formatter, so this follows its steps:
+ * - Apollo Server gives a variable that fails coercion the code `BAD_USER_INPUT`
+ *   (`isBadUserInputGraphQLError` in `@apollo/server` `requestPipeline`).
+ * - Apollo Server gives an error without a code the code `INTERNAL_SERVER_ERROR` (`enrichError` in `errorNormalize`).
+ * - Keystone replaces an error that Prisma caused with "Prisma error" and the code `KS_PRISMA_ERROR`
+ *   (`formatError` in `@keystone-6/core` `src/lib/express.ts`).
+ * Only the message and the code go to the client. The app's `graphql.apolloConfig.formatError` does not run here.
+ */
+function formatGraphQLError(error: unknown): { message: string; extensions: { code: unknown } } {
+  if (error instanceof GraphQLError && error.originalError?.name.startsWith('Prisma')) {
+    return { message: 'Prisma error', extensions: { code: 'KS_PRISMA_ERROR' } };
+  }
+  if (!(error instanceof Error)) {
+    return { message: `Unexpected error value: ${String(error)}`, extensions: { code: 'INTERNAL_SERVER_ERROR' } };
+  }
+  const code = error instanceof GraphQLError ? error.extensions.code : undefined;
+  if (code != null) return { message: error.message, extensions: { code } };
+  return { message: error.message, extensions: { code: isBadUserInput(error) ? 'BAD_USER_INPUT' : 'INTERNAL_SERVER_ERROR' } };
+}
+
+/** Apollo Server's test for an error from variable coercion. */
+function isBadUserInput(error: Error): boolean {
+  const node = error instanceof GraphQLError && error.nodes?.length === 1 ? error.nodes[0] : undefined;
+  if (node?.kind !== Kind.VARIABLE_DEFINITION) return false;
+  const variable = `Variable "$${node.variable.name.value}"`;
+  return [' has invalid value', ' got invalid value ', ' of required type ', ' of non-null type '].some((rest) =>
+    error.message.startsWith(variable + rest),
+  );
 }

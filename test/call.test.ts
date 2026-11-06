@@ -28,6 +28,11 @@ describe('buildCall', () => {
     expectValid(call.document);
   });
 
+  it('clamps a negative take to -takeLimit, so it still returns at most takeLimit rows', () => {
+    expect(buildCall(catalog, { operation: 'posts', args: { take: -80 } }, 50).variables.take).toBe(-50);
+    expect(buildCall(catalog, { operation: 'posts', args: { take: -5 } }, 50).variables.take).toBe(-5);
+  });
+
   it('sends takeLimit when take is missing or null', () => {
     expect(buildCall(catalog, { operation: 'posts' }, 50).variables).toEqual({ take: 50 });
     expect(buildCall(catalog, { operation: 'users', args: { take: null } }, 7).variables).toEqual({ take: 7 });

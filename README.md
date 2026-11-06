@@ -55,13 +55,14 @@ server: {
 | ------------- | ------- | ------------------------------------------------------------------------- |
 | `path`        | `/mcp`  | The HTTP path of the endpoint.                                            |
 | `queriesOnly` | `false` | When `true`, the catalog holds queries only, and `callTool` cannot mutate. |
-| `takeLimit`   | `50`    | The maximum `take` that `callTool` sends. A missing `take` becomes this.  |
+| `takeLimit`   | `50`    | The maximum `take` that `callTool` sends, in either direction. A missing `take` becomes this. A negative `take` reads from the end and stops at `-takeLimit`. |
 
 ## Behavior
 
 - `POST <path>` serves a stateless MCP Streamable HTTP endpoint with JSON responses. Each request creates a new MCP server.
 - `GET <path>` and `DELETE <path>` respond `405` with JSON-RPC error code `-32000`.
 - `callTool` runs `context.withRequest(req, res)` and then `context.graphql.run`. Keystone access control applies as for any GraphQL request. With `statelessSessions`, MCP clients send the session token as `Authorization: Bearer <token>`.
+- When the GraphQL call fails, `callTool` returns a tool error whose text is `{"errors":[{"message":…,"extensions":{"code":…}}]}`, with the message and code that `/api/graphql` gives for the same failure. An error that Prisma caused becomes `Prisma error` with code `KS_PRISMA_ERROR`. The app's `graphql.apolloConfig.formatError` does not run on this path.
 - The catalog skips the root field `keystone`. Keystone builds a new catalog after each dev rebuild.
 - The JSON body parser runs on the MCP path only.
 

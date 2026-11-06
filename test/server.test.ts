@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, it } from 'vitest';
+import { GraphQLError, locatedError } from 'graphql';
 import { buildCatalog } from '../src/catalog.js';
 import { createMcpServer } from '../src/server.js';
 import type { McpContext } from '../src/types.js';
@@ -64,17 +65,42 @@ describe('createMcpServer', () => {
     expect(runs).toEqual([]);
   });
 
-  it('callTool returns a tool error when graphql.run rejects', async () => {
-    const context: McpContext = {
-      ...fakeContext().requestContext,
-      graphql: { schema, run: () => Promise.reject(new Error('Access denied: You cannot create that Post')) },
-    };
+  /** Runs `createPost` on a context whose `graphql.run` rejects the way Keystone's `run` does: with the first GraphQL error. */
+  async function callCreatePostRejectingWith(error: Error) {
+    const context: McpContext = { ...fakeContext().requestContext, graphql: { schema, run: () => Promise.reject(error) } };
     const client = await connect(context);
-    const result = await client.callTool({
-      name: 'callTool',
-      arguments: { operation: 'createPost', args: { data: { title: 'x' } }, select: ['id'] },
+    return client.callTool({ name: 'callTool', arguments: { operation: 'createPost', args: { data: { title: 'x' } }, select: ['id'] } });
+  }
+
+  it('callTool hides a Prisma error as "Prisma error" with code KS_PRISMA_ERROR, as /api/graphql does', async () => {
+    const prismaError = Object.assign(new Error('Invalid `prisma.post.create()` invocation: Unique constraint failed on the fields: (`title`)'), {
+      name: 'PrismaClientKnownRequestError',
     });
-    expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'Access denied: You cannot create that Post' }] });
+    const result = await callCreatePostRejectingWith(locatedError(prismaError, undefined, ['createPost']));
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(text(result))).toEqual({ errors: [{ message: 'Prisma error', extensions: { code: 'KS_PRISMA_ERROR' } }] });
+  });
+
+  it('callTool keeps the message and code of a Keystone error', async () => {
+    const accessError = new GraphQLError('Access denied: You cannot create that Post', { extensions: { code: 'KS_ACCESS_DENIED' } });
+    const result = await callCreatePostRejectingWith(accessError);
+    expect(JSON.parse(text(result))).toEqual({
+      errors: [{ message: 'Access denied: You cannot create that Post', extensions: { code: 'KS_ACCESS_DENIED' } }],
+    });
+  });
+
+  it('callTool gives a resolver error without a code the code INTERNAL_SERVER_ERROR', async () => {
+    const result = await callCreatePostRejectingWith(locatedError(new Error('Title is reserved'), undefined, ['createPost']));
+    expect(JSON.parse(text(result))).toEqual({ errors: [{ message: 'Title is reserved', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] });
+  });
+
+  it('callTool gives an argument of the wrong type the code BAD_USER_INPUT', async () => {
+    const client = await connect(fakeContext().requestContext);
+    const result = await client.callTool({ name: 'callTool', arguments: { operation: 'posts', args: { take: 'many' }, select: ['id'] } });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(text(result))).toEqual({
+      errors: [{ message: 'Variable "$take" got invalid value "many"; Int cannot represent non-integer value: "many"', extensions: { code: 'BAD_USER_INPUT' } }],
+    });
   });
 
   it('callTool cannot run a mutation when queriesOnly is set', async () => {

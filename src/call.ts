@@ -20,7 +20,7 @@ const TAKE_ARG = 'take';
 
 /**
  * Turns one catalog entry and the input of `callTool` into a GraphQL document and its variables.
- * When the operation has a `take` argument, `take` is at most `takeLimit`, and a missing `take` is `takeLimit`.
+ * When the operation has a `take` argument, `take` is at most `takeLimit` rows in either direction, and a missing `take` is `takeLimit`.
  * Throws `CallError` when the catalog rejects the input.
  */
 export function buildCall(catalog: Catalog, input: CallInput, takeLimit: number): Call {
@@ -57,8 +57,11 @@ function buildVariables(entry: CatalogEntry, args: Record<string, unknown>, take
   const variables = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined));
   if (known.has(TAKE_ARG)) {
     const take = variables[TAKE_ARG];
-    if (take === null || take === undefined || (typeof take === 'number' && take > takeLimit)) {
+    if (take === null || take === undefined) {
       variables[TAKE_ARG] = takeLimit;
+    } else if (typeof take === 'number' && Math.abs(take) > takeLimit) {
+      // A negative take reads rows from the end. Keystone limits it by its absolute value too.
+      variables[TAKE_ARG] = Math.sign(take) * takeLimit;
     }
   }
   const missing = entry.args.filter(
