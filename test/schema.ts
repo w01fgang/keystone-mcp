@@ -3,8 +3,8 @@ import { buildSchema, graphql } from 'graphql';
 import type { McpContext } from '../src/types.js';
 
 /**
- * A GraphQL schema in the shape that Keystone 6 generates for two lists, `Post` and `User`,
- * plus the `keystone` meta field and one output field with a required argument.
+ * A GraphQL schema in the shape that Keystone 6 generates for two lists, `Post` and `User`, with `@keystone-6/auth`
+ * on `User`, plus the `keystone` meta field and one output field with a required argument.
  */
 export const sdl = /* GraphQL */ `
   type Query {
@@ -27,6 +27,18 @@ export const sdl = /* GraphQL */ `
     createPost(data: PostCreateInput!): Post
     updatePost(where: PostWhereUniqueInput!, data: PostUpdateInput!): Post
     deletePost(where: PostWhereUniqueInput!): Post
+    authenticateUserWithPassword(email: String!, password: String!): UserAuthenticationWithPasswordResult
+  }
+
+  union UserAuthenticationWithPasswordResult = UserAuthenticationWithPasswordSuccess | UserAuthenticationWithPasswordFailure
+
+  type UserAuthenticationWithPasswordSuccess {
+    sessionToken: String!
+    item: User!
+  }
+
+  type UserAuthenticationWithPasswordFailure {
+    message: String!
   }
 
   type Post {
@@ -172,16 +184,33 @@ export interface RunRecord {
   variables?: Record<string, unknown>;
 }
 
+/** The fixture's one user and the password that signs it in. */
+export const ADMIN = { email: 'admin@example.com', password: 'correct horse battery staple' };
+
 /**
  * A Keystone-like context. `withRequest` returns a separate request context, and only the
  * request context executes documents, so a test can see which context ran a call.
+ * The password mutation starts a session in `sessions`; `withRequest` reads it from `Authorization: Bearer`,
+ * as Keystone's `statelessSessions` does. Deleting an entry ends that session.
  */
 export function fakeContext() {
   const runs: RunRecord[] = [];
   const requests: IncomingMessage[] = [];
+  const sessions = new Map<string, { listKey: string; itemId: string }>();
+  const signInRoot = {
+    ...rootValue,
+    authenticateUserWithPassword: ({ email, password }: { email: string; password: string }) => {
+      if (email !== ADMIN.email || password !== ADMIN.password) {
+        return { __typename: 'UserAuthenticationWithPasswordFailure', message: 'Authentication failed.' };
+      }
+      const sessionToken = `keystone-session-${sessions.size + 1}`;
+      sessions.set(sessionToken, { listKey: 'User', itemId: '1' });
+      return { __typename: 'UserAuthenticationWithPasswordSuccess', sessionToken, item: { id: '1' } };
+    },
+  };
   const run = async ({ query, variables }: RunRecord) => {
     runs.push({ query, variables });
-    const result = await graphql({ schema, source: query, variableValues: variables, rootValue });
+    const result = await graphql({ schema, source: query, variableValues: variables, rootValue: signInRoot });
     if (result.errors?.length) throw result.errors[0];
     return result.data;
   };
@@ -196,8 +225,9 @@ export function fakeContext() {
     },
     withRequest: async (req) => {
       requests.push(req);
-      return requestContext;
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
+      return { ...requestContext, session: token ? sessions.get(token) : undefined };
     },
   };
-  return { commonContext, requestContext, runs, requests };
+  return { commonContext, requestContext, runs, requests, sessions };
 }

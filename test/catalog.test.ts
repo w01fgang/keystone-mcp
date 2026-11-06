@@ -17,6 +17,7 @@ describe('buildCatalog', () => {
       'mutation:createPost',
       'mutation:updatePost',
       'mutation:deletePost',
+      'mutation:authenticateUserWithPassword',
     ]);
     expect(catalog.byName.has('keystone')).toBe(false);
   });

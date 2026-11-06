@@ -6,7 +6,9 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import express from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { keystoneMcp } from '../src/mount.js';
+import { INSTRUCTIONS } from '../src/server.js';
 import type { KeystoneMcpOptions } from '../src/types.js';
+import { signIn } from './oauth.js';
 import { fakeContext } from './schema.js';
 
 const servers: Server[] = [];
@@ -25,29 +27,32 @@ async function start(options?: KeystoneMcpOptions) {
   return { ...fake, base };
 }
 
-async function connect(url: string, token?: string) {
+/** Signs in through the OAuth flow and connects with the access token. */
+async function connect(base: string, path = '/mcp') {
+  const { accessToken } = await signIn(base, path);
   const client = new Client({ name: 'test', version: '1.0.0' });
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  await client.connect(new StreamableHTTPClientTransport(new URL(base + path), { requestInit: { headers } }));
   return client;
 }
 
 describe('keystoneMcp', () => {
-  it('answers POST /mcp with searchTool and callTool', async () => {
+  it('answers POST /mcp with searchTool and callTool, and initialize carries the instructions', async () => {
     const { base } = await start();
-    const client = await connect(`${base}/mcp`);
+    const client = await connect(base);
+    expect(client.getInstructions()).toBe(INSTRUCTIONS);
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name)).toEqual(['searchTool', 'callTool']);
     await client.close();
   });
 
-  it('runs callTool through the context that withRequest returns, with take clamped to 50', async () => {
+  it('runs callTool as the Keystone session behind the access token, with take clamped to 50', async () => {
     const { base, runs, requests } = await start();
-    const client = await connect(`${base}/mcp`, 'secret-token');
+    const client = await connect(base);
     const result = await client.callTool({ name: 'callTool', arguments: { operation: 'posts', args: { take: 80 }, select: ['id'] } });
     expect(result.isError).toBeFalsy();
     expect(runs.at(-1)).toEqual({ query: 'query KeystoneMcpCall($take: Int) { posts(take: $take) { id } }', variables: { take: 50 } });
-    expect(requests.at(-1)?.headers.authorization).toBe('Bearer secret-token');
+    expect(requests.at(-1)?.headers.authorization).toBe('Bearer keystone-session-1');
     await client.close();
   });
 
@@ -71,7 +76,7 @@ describe('keystoneMcp', () => {
   it('mounts at a custom path and passes takeLimit to callTool', async () => {
     const { base, runs } = await start({ path: '/ai', takeLimit: 3 });
     expect((await fetch(`${base}/mcp`, { method: 'GET' })).status).toBe(404);
-    const client = await connect(`${base}/ai`);
+    const client = await connect(base, '/ai');
     await client.callTool({ name: 'callTool', arguments: { operation: 'posts', select: ['id'] } });
     expect(runs.at(-1)?.variables).toEqual({ take: 3 });
     await client.close();
@@ -90,7 +95,7 @@ describe('keystoneMcp', () => {
   ])('with NODE_ENV=$nodeEnv and introspection $introspection, searchTool on is $on', async ({ nodeEnv, introspection, on }) => {
     vi.stubEnv('NODE_ENV', nodeEnv);
     const { base } = await start({ introspection });
-    const client = await connect(`${base}/mcp`);
+    const client = await connect(base);
     const result = await client.callTool({ name: 'searchTool', arguments: { text: 'posts' } });
     const text = (result.content as { text: string }[])[0].text;
     if (on) {
@@ -106,7 +111,7 @@ describe('keystoneMcp', () => {
   it('runs callTool while searchTool is off', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     const { base, runs } = await start();
-    const client = await connect(`${base}/mcp`);
+    const client = await connect(base);
     const result = await client.callTool({ name: 'callTool', arguments: { operation: 'posts', args: { take: 2 }, select: ['id'] } });
     expect(result.isError).toBeFalsy();
     expect(runs.at(-1)?.variables).toEqual({ take: 2 });
