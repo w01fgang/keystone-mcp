@@ -16,8 +16,6 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
-- `F007-the-shop-example-runs-on-current-keystone-with-no-known-vulnerabilities` (🟠 ACTIVE): The shop example runs on current Keystone with no known vulnerabilities
-
 ## NEXT
 
 - Nothing planned.
@@ -26,10 +24,11 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/done/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F007-the-shop-example-runs-on-current-keystone-with-no-known-vulnerabilities` (🟢 PROVEN): The shop example runs on current Keystone with no known vulnerabilities; landed 2026-11-07
 - `F006-every-keystone-field-type-works-through-searchtool-and-calltool` (🟢 PROVEN): Every Keystone field type works through searchTool and callTool; landed 2026-11-07
 - `F005-error-text-from-mcp-names-no-technology` (🟢 PROVEN): Error text from /mcp names no technology; landed 2026-11-07
 - `F004-agents-learn-what-the-project-is-when-they-connect-to-mcp` (🟢 PROVEN): Agents learn what the project is when they connect to /mcp; landed 2026-11-07
 - `F003-the-repository-has-a-small-shop-example-that-shows-how-to-use-the-package` (🟢 PROVEN): The repository has a small shop example that shows how to use the package; landed 2026-11-07
 - `F002-keystone-admins-connect-claude-desktop-to-mcp-by-signing-in-with-their-browser` (🟢 PROVEN): Keystone admins connect Claude Desktop to /mcp by signing in with their browser; landed 2026-11-07
 - `F001-keystone-apps-answer-mcp-clients-with-searchtool-and-calltool` (🟢 PROVEN): Keystone apps answer MCP clients with searchTool and callTool; landed 2026-11-06
-- 2026-11: 6 landed. spec/features/done/2026-11/
+- 2026-11: 7 landed. spec/features/done/2026-11/

@@ -1,5 +1,6 @@
 ---
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F007 · The shop example runs on current Keystone with no known vulnerabilities
