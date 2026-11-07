@@ -17,6 +17,8 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F011-the-code-passes-every-anti-slop-lint-rule` (🟠 ACTIVE): The code passes every anti-slop lint rule
+
 ## NEXT
 
 - Nothing planned.
