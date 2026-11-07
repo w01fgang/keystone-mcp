@@ -1,5 +1,8 @@
-# Each push to master runs the checks. When package.json names a version that npm does not have yet, the job
-# publishes it. npm trusted publishing authenticates the job (OIDC), so the repository holds no npm token.
+# Each push to master runs the checks. When the push changes the package.json version and npm does not have that
+# version yet, the job stages it with `npm stage publish`. A maintainer then approves it with 2FA on npmjs.com
+# (Staged Packages) or with `npm stage approve`, and only then is it public. Running the workflow by hand stages the
+# current version without the version-change check, for a retry. npm trusted publishing authenticates the job
+# (OIDC), so the repository holds no npm token, and its permission is stage-only.
 name: Release
 
 on:
@@ -21,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Node 24 ships npm 11.5.1 or later, which trusted publishing needs. No cache: a poisoned cache in a publishing
+      # Node 24 ships npm 11.15.0 or later, which `npm stage publish` needs. No cache: a poisoned cache in a publishing
       # job could read the OIDC token.
       - uses: actions/setup-node@v7
         with:
@@ -35,15 +38,27 @@ jobs:
       - run: npm test
       - run: npm run build
 
-      - name: Decide whether to publish
+      - name: Decide whether to stage
         id: version
+        env:
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           version=$(node -p "require('./package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if npm view "keystone-mcp@$version" version --json > /dev/null 2>&1; then
-            echo "keystone-mcp $version is already on npm; nothing to publish."
+            echo "keystone-mcp $version is already on npm; nothing to stage."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # A staged version stays private until approval, so npm view cannot see it. Stage only when this push
+          # changed the version; otherwise each later push would stage the same version again.
+          if [[ -n "$BEFORE" ]] && git fetch --quiet --no-tags --depth=1 origin "$BEFORE" 2> /dev/null; then
+            previous=$(git show "$BEFORE:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+            if [[ "$previous" == "$version" ]]; then
+              echo "This push did not change the version ($version); nothing to stage."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           if [[ "$version" == *-* ]]; then
             echo "tag=next" >> "$GITHUB_OUTPUT"
@@ -59,4 +74,4 @@ jobs:
 
       # prepublishOnly runs the tests and the build again; the steps above already did, so skip it.
       - if: steps.version.outputs.publish == 'true'
-        run: npm publish --ignore-scripts --tag "${{ steps.version.outputs.tag }}"
+        run: npm stage publish --ignore-scripts --tag "${{ steps.version.outputs.tag }}"
