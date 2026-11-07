@@ -14,4 +14,4 @@
 ## Current direction
 
 - Ship the first version of the package (F001): catalog, search, call, MCP server, and the Express mount, with a README for the `keystone.ts` wiring.
-- Apps use the package through a `file:` dependency. Publishing to npm waits for an explicit request.
+- `keystone-mcp` 0.1.0 is on npm (2026-11-07). Apps install it with `npm install keystone-mcp`; the source is https://github.com/w01fgang/keystone-mcp.
