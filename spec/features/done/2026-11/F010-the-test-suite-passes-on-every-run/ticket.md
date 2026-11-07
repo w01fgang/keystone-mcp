@@ -1,5 +1,6 @@
 ---
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F010 · The test suite passes on every run
