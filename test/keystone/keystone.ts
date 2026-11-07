@@ -31,6 +31,7 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
  */
 
 const signedIn = ({ session }: { session?: unknown }) => session !== undefined;
+
 const access = {
   operation: { query: allowAll, create: signedIn, update: signedIn, delete: signedIn },
 };

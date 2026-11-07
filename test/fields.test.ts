@@ -40,6 +40,7 @@ let userId: string;
 
 beforeAll(async () => {
   databaseDir = await mkdtemp(join(tmpdir(), 'keystone-mcp-fields-'));
+
   const env = {
     ...process.env,
     DATABASE_URL: `file:${join(databaseDir, 'test.db')}`,
@@ -47,6 +48,7 @@ beforeAll(async () => {
     CHECKPOINT_DISABLE: '1',
     PRISMA_HIDE_UPDATE_MESSAGE: '1',
   };
+
   process.env.DATABASE_URL = env.DATABASE_URL;
   const require = createRequire(join(appDir, 'package.json'));
   await run(process.execPath, [require.resolve('@keystone-6/core/bin/cli.js'), 'build', '--no-ui', '--quiet'], { cwd: appDir, env });
@@ -70,8 +72,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await client?.close();
+
   if (server) await once(server.close(), 'close');
   await context?.prisma.$disconnect();
+
   if (databaseDir) await rm(databaseDir, { recursive: true, force: true });
 });
 
@@ -80,19 +84,23 @@ async function runTool(agent: Client, name: string, args: Record<string, unknown
   const result = (await agent.callTool({ name, arguments: args })) as CallToolResult;
   const text = result.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
   expect(text).not.toMatch(TECHNOLOGY);
+
   return { isError: Boolean(result.isError), text };
 }
 
 async function search(text: string): Promise<CatalogEntry[]> {
   const result = await runTool(client, 'searchTool', { text, limit: 25 });
   expect(result.isError).toBe(false);
+
   return (JSON.parse(result.text) as { operations: CatalogEntry[] }).operations;
 }
 
 /** Finds an operation through searchTool, as an agent does. */
 async function find(operation: string): Promise<CatalogEntry> {
   const entry = (await search(operation)).find((candidate) => candidate.name === operation);
+
   if (!entry) throw new Error(`searchTool did not find ${operation}`);
+
   return entry;
 }
 
@@ -100,19 +108,23 @@ type Row = Record<string, unknown>;
 
 async function call(operation: string, args: Row, select?: string[]): Promise<Row | null> {
   const result = await runTool(client, 'callTool', { operation, args, ...(select ? { select } : {}) });
+
   if (result.isError) throw new Error(`callTool ${operation} failed: ${result.text}`);
+
   return (JSON.parse(result.text) as Record<string, Row | null>)[operation] ?? null;
 }
 
 async function callError(operation: string, args: Row, select = ['id']) {
   const result = await runTool(client, 'callTool', { operation, args, select });
   expect(result.isError).toBe(true);
+
   return (JSON.parse(result.text) as { errors: [{ message: string; extensions: { code: string } }] }).errors[0];
 }
 
 /** The ids of the items of a list query that match a filter. */
 async function idsOf(operation: string, where: Row): Promise<unknown[]> {
   const items = (await call(operation, { where }, ['id'])) as unknown as Row[];
+
   return items.map((item) => item.id);
 }
 
@@ -146,9 +158,11 @@ async function roundTrip({ list, select, create, stored, created, filter, update
   const one = lowerFirst(list);
   const many = `${one}s`;
   const read = await find(one);
+
   for (const path of select) expect(read.paths).toContain(path);
 
   let id: string;
+
   if (create) {
     expect(inputFields(await find(`create${list}`), 'data')).toEqual(expect.arrayContaining(Object.keys(create)));
     const item = await call(`create${list}`, { data: create }, ['id', ...select]);
@@ -157,6 +171,7 @@ async function roundTrip({ list, select, create, stored, created, filter, update
   } else {
     id = (await stored!()).id;
   }
+
   expect(await call(one, { where: { id } }, select)).toMatchObject(created);
 
   if (filter) {
@@ -363,11 +378,13 @@ describe('every Keystone field type through searchTool and callTool', () => {
   it('connects one-sided and two-sided relationships, to one and to many, and filters on them', async () => {
     const parent = await call('createRelationshipItem', { data: { name: 'parent' } }, ['id']);
     const tag = await call('createTag', { data: { name: 'red' } }, ['id']);
+
     const sibling = await call(
       'createRelationshipItem',
       { data: { name: 'sibling', parent: { connect: { id: parent!.id } }, tags: { create: [{ name: 'green' }] } } },
       ['id'],
     );
+
     // The catalog summary leaves out filters on to-many relationships, but callTool runs them.
     expect(inputFields(await find('relationshipItems'), 'where')).toEqual(['id', 'name', 'owner', 'parent']);
     expect(await idsOf('relationshipItems', { tags: { some: { name: { equals: 'green' } } } })).toEqual([sibling!.id]);
@@ -462,6 +479,7 @@ describe('every Keystone field type through searchTool and callTool', () => {
 
   it('reads a stored cloudinaryImage with its url and metadata', async () => {
     expect(inputFields(await find('createCloudinaryItem'), 'data')).toEqual(['name', 'banner']);
+
     const banner = {
       id: 'b1',
       filename: 'banner.jpg',
@@ -470,6 +488,7 @@ describe('every Keystone field type through searchTool and callTool', () => {
       encoding: '7bit',
       _meta: { public_id: 'banners/b1', format: 'jpg', width: 1200, height: 400, bytes: 4096, secure_url: 'https://res.cloudinary.com/test-cloud/b1.jpg' },
     };
+
     await roundTrip({
       list: 'CloudinaryItem',
       select: ['name', 'banner.filename', 'banner.mimetype', 'banner.publicUrl', 'banner.publicUrlTransformed', 'banner.filesize', 'banner.width'],
@@ -494,6 +513,7 @@ describe('every Keystone field type through searchTool and callTool', () => {
   it('names no technology in the instructions and tool list of the app', async () => {
     expect(client.getInstructions()).toMatch(/^This project holds these kinds of records: /);
     const texts = [client.getInstructions(), JSON.stringify((await client.listTools()).tools)];
+
     for (const agentText of texts) expect(agentText).not.toMatch(TECHNOLOGY);
   });
 

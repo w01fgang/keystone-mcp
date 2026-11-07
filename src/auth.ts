@@ -30,6 +30,7 @@ const REFRESH_TOKEN_SECONDS = 30 * 24 * 60 * 60;
 const CODE_SECONDS = 5 * 60;
 const SIGN_IN_SECONDS = 10 * 60;
 const SIGN_IN_ATTEMPTS = 5;
+
 /** Above this size a memory store drops its expired entries, and a capped store also its oldest entries. */
 const MAX_ENTRIES = 1000;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -50,11 +51,15 @@ export function findPasswordMutation(schema: GraphQLSchema): PasswordMutation | 
   for (const field of Object.values(schema.getMutationType()?.getFields() ?? {})) {
     if (!/^authenticate\w+WithPassword$/.test(field.name) || field.args.length !== 2) continue;
     const result = getNamedType(field.type);
+
     if (!isUnionType(result)) continue;
     const success = result.getTypes().find((type) => isObjectType(type) && 'sessionToken' in type.getFields());
+
     if (!success || !field.args.every((arg) => isNonNullType(arg.type) && getNamedType(arg.type).name === 'String')) continue;
+
     return { name: field.name, identityArg: field.args[0]!.name, secretArg: field.args[1]!.name, successType: success.name };
   }
+
   return undefined;
 }
 
@@ -125,15 +130,20 @@ const CAPPED: Record<Kind, boolean> = { client: true, signIn: true, code: false,
 /** Keeps the values in the memory of the process. A key is a random token. */
 function memoryVault(): Vault {
   const stores = new Map<Kind, Map<string, unknown>>();
+
   const storeOf = (kind: Kind) => {
     let store = stores.get(kind);
+
     if (!store) stores.set(kind, (store = new Map()));
+
     return store;
   };
+
   return {
     put(kind, value) {
       const key = newToken();
       remember(storeOf(kind), key, value, CAPPED[kind]);
+
       return key;
     },
     get: <K extends Kind>(kind: K, key: string) => live(storeOf(kind) as Map<string, Values[K]>, key),
@@ -152,26 +162,32 @@ const TAG_BYTES = 16;
 function sealedVault(secret: string, path: string): Vault {
   const key = Buffer.from(hkdfSync('sha256', secret, 'keystone-mcp', 'oauth state', 32));
   const aad = (kind: Kind) => Buffer.from(`${path}\n${kind}`);
+
   return {
     put(kind, value) {
       const iv = randomBytes(IV_BYTES);
       const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_BYTES }).setAAD(aad(kind));
       const sealed = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+
       return Buffer.concat([iv, cipher.getAuthTag(), sealed]).toString('base64url');
     },
     get<K extends Kind>(kind: K, sealedKey: string) {
       const data = Buffer.from(sealedKey, 'base64url');
+
       // Base64 decoding skips foreign characters and ignores the spare bits of the last one, so compare the round trip.
       if (data.length <= IV_BYTES + TAG_BYTES || data.toString('base64url') !== sealedKey) return undefined;
       let value: Values[K];
+
       try {
         const decipher = createDecipheriv('aes-256-gcm', key, data.subarray(0, IV_BYTES), { authTagLength: TAG_BYTES })
           .setAAD(aad(kind))
           .setAuthTag(data.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
+
         value = JSON.parse(Buffer.concat([decipher.update(data.subarray(IV_BYTES + TAG_BYTES)), decipher.final()]).toString('utf8'));
       } catch {
         return undefined;
       }
+
       return unexpired(value) ? value : undefined;
     },
     drop() {},
@@ -192,7 +208,9 @@ const stateByPath = new Map<string, PathState>();
 
 function stateOf(path: string): PathState {
   let state = stateByPath.get(path);
+
   if (!state) stateByPath.set(path, (state = { memory: memoryVault(), signInAttempts: new Map() }));
+
   return state;
 }
 
@@ -205,12 +223,14 @@ function stateOf(path: string): PathState {
  */
 export function mountOAuth(app: Express, commonContext: McpContext, path: string, secret?: string): McpOAuth {
   const mutation = findPasswordMutation(commonContext.graphql.schema);
+
   if (!mutation) {
     throw new Error(
       `keystoneMcp: ${path} needs a password sign-in. The GraphQL schema has no authenticate<List>WithPassword mutation; ` +
         'add createAuth from @keystone-6/auth to keystone.ts.',
     );
   }
+
   const paths = {
     authorize: `${path}/oauth/authorize`,
     signIn: `${path}/oauth/signin`,
@@ -224,6 +244,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
 
   const clientOf = (clientId: string): OAuthClientInformationFull | undefined => {
     const client = vault.get('client', clientId);
+
     return client && { client_id: clientId, ...client };
   };
 
@@ -232,12 +253,15 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     registerClient(client) {
       for (const uri of client.redirect_uris) {
         const url = new URL(uri);
+
         if (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))) {
           throw new InvalidClientMetadataError(`redirect_uri must use https, or http on a loopback host: ${uri}`);
         }
       }
+
       // The SDK sets a random client_id. The vault key replaces it.
       const { client_id: _, ...metadata } = client as OAuthClientInformationFull;
+
       return { client_id: vault.put('client', metadata), ...metadata };
     },
   };
@@ -245,6 +269,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
   /** Issues an access token and a refresh token for one grant. */
   function issueTokens({ clientId, sessionToken, resource, scopes }: Grant): OAuthTokens {
     const grant: Grant = { clientId, sessionToken, resource, scopes };
+
     return {
       access_token: vault.put('access', { ...grant, expiresAt: now() + ACCESS_TOKEN_SECONDS }),
       token_type: 'Bearer',
@@ -261,11 +286,14 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       const req = res.req as Request;
       const { resource: requested, ...request } = params;
       const resource = resourceUrl(req, path);
+
       if (requested && !sameResource(requested.href, resource)) {
         throw new InvalidTargetError(`This server is the resource ${resource}.`);
       }
+
       // The SDK reads the authorization parameters from the body of a POST and from the query of a GET.
       const sent = (req.method === 'POST' ? req.body : req.query) as Record<string, unknown> | undefined;
+
       const id = vault.put('signIn', {
         clientId: client.client_id,
         params: request,
@@ -273,40 +301,53 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
         redirectUriSent: sent?.redirect_uri !== undefined,
         expiresAt: now() + SIGN_IN_SECONDS,
       });
+
       sendSignInPage(res, 200, { id, client, redirectUri: params.redirectUri, mutation, action: paths.signIn });
     },
 
     async challengeForAuthorizationCode(client, code) {
       const record = vault.get('code', code);
+
       if (!record || record.clientId !== client.client_id) throw new InvalidGrantError('The authorization code is not valid.');
+
       return record.codeChallenge;
     },
 
     async exchangeAuthorizationCode(client, code, _codeVerifier, redirectUri, resource) {
       const record = vault.get('code', code);
       vault.drop('code', code);
+
       if (!record || record.clientId !== client.client_id) throw new InvalidGrantError('The authorization code is not valid.');
+
       if (redirectUri === undefined ? record.redirectUriSent : redirectUri !== record.redirectUri) {
         throw new InvalidGrantError('redirect_uri is not the one of the authorization request.');
       }
+
       if (resource && !sameResource(resource.href, record.resource)) throw new InvalidTargetError('resource does not match.');
+
       return issueTokens(record);
     },
 
     async exchangeRefreshToken(client, refreshToken, _scopes, resource) {
       const record = vault.get('refresh', refreshToken);
+
       if (!record || record.clientId !== client.client_id) throw new InvalidGrantError('The refresh token is not valid.');
       vault.drop('refresh', refreshToken);
+
       if (resource && !sameResource(resource.href, record.resource)) throw new InvalidTargetError('resource does not match.');
+
       if (!(await sessionOf(commonContext, record.sessionToken))) {
         throw new InvalidGrantError('Your session has ended. Sign in again.');
       }
+
       return issueTokens(record);
     },
 
     async verifyAccessToken(token): Promise<AuthInfo> {
       const record = vault.get('access', token);
+
       if (!record) throw new InvalidTokenError('The access token is not valid.');
+
       return { token, clientId: record.clientId, scopes: record.scopes, expiresAt: record.expiresAt, resource: new URL(record.resource) };
     },
 
@@ -324,17 +365,20 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store', Vary: 'Host' });
     res.json(build(req));
   };
+
   const protectedResource = sendMetadata((req): OAuthProtectedResourceMetadata => ({
     resource: resourceUrl(req, path),
     authorization_servers: [origin(req)],
     bearer_methods_supported: ['header'],
   }));
+
   app.get(`/.well-known/oauth-protected-resource${path}`, protectedResource);
   app.get('/.well-known/oauth-protected-resource', protectedResource);
   app.get(
     '/.well-known/oauth-authorization-server',
     sendMetadata((req): OAuthMetadata => {
       const base = origin(req);
+
       return {
         issuer: base,
         authorization_endpoint: base + paths.authorize,
@@ -362,31 +406,42 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     const pending = vault.get('signIn', id);
     const attempts = live(signInAttempts, id)?.count ?? 0;
     const client = pending && attempts < SIGN_IN_ATTEMPTS ? clientOf(pending.clientId) : undefined;
+
     if (!pending || !client) {
       res.status(400).type('text/plain').send('This sign-in has expired. Start the connection again in your MCP client.');
+
       return;
     }
+
     const { params, resource, redirectUriSent, expiresAt } = pending;
+
     /** Records the password checks of this sign-in, and ends it at the limit. A sealed transaction ends in this process only. */
     const countAttempts = (count: number) => {
       remember(signInAttempts, id, { count, expiresAt }, true);
+
       if (count >= SIGN_IN_ATTEMPTS) vault.drop('signIn', id);
     };
+
     if (body.decision !== 'allow') {
       countAttempts(SIGN_IN_ATTEMPTS);
       res.redirect(302, redirectWith(params, { error: 'access_denied', error_description: 'The user denied access.' }));
+
       return;
     }
+
     // Count the attempt before the password check, so guesses that arrive at the same time count too.
     countAttempts(attempts + 1);
     let sessionToken: string | undefined;
+
     try {
       sessionToken = await signIn(req, commonContext, mutation, String(body.identity ?? ''), String(body.secret ?? ''));
     } catch (error) {
       console.error('keystone-mcp: the sign-in request failed.', error);
       res.status(500).type('text/plain').send('The sign-in failed because of a server error. Try again later.');
+
       return;
     }
+
     if (!sessionToken) {
       sendSignInPage(res, 401, {
         id,
@@ -396,9 +451,12 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
         action: paths.signIn,
         error: attempts + 1 >= SIGN_IN_ATTEMPTS ? 'Too many failed sign-ins. Start the connection again.' : 'The sign-in failed. Check your email and password.',
       });
+
       return;
     }
+
     countAttempts(SIGN_IN_ATTEMPTS);
+
     const code = vault.put('code', {
       clientId: client.client_id,
       sessionToken,
@@ -409,6 +467,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       redirectUriSent,
       expiresAt: now() + CODE_SECONDS,
     });
+
     res.redirect(302, redirectWith(params, { code }));
   });
 
@@ -420,18 +479,24 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       const header = req.headers.authorization ?? '';
       const match = /^Bearer\s+(\S+)$/i.exec(header);
       const record = match ? vault.get('access', match[1]!) : undefined;
+
       if (!record || !sameResource(record.resource, resource)) {
         sendUnauthorized(res, metadataUrl, header ? 'The access token is not valid.' : 'Sign in to use this server.');
+
         return undefined;
       }
+
       // Keystone's session strategy reads the bearer header first, so the request runs as the signed-in user.
       req.headers.authorization = `Bearer ${record.sessionToken}`;
       const context = await commonContext.withRequest(req, res);
+
       if (!context.session) {
         vault.drop('access', match![1]!);
         sendUnauthorized(res, metadataUrl, 'Your session has ended. Sign in again.');
+
         return undefined;
       }
+
       return context;
     },
   };
@@ -447,12 +512,15 @@ async function signIn(
 ): Promise<string | undefined> {
   if (!identity || !secret) return undefined;
   const context = await commonContext.withRequest(req, new ServerResponse(req));
+
   const query =
     `mutation KeystoneMcpSignIn($identity: String!, $secret: String!) { ` +
     `result: ${mutation.name}(${mutation.identityArg}: $identity, ${mutation.secretArg}: $secret) { ` +
     `... on ${mutation.successType} { sessionToken } } }`;
+
   const data = (await context.graphql.run({ query, variables: { identity, secret } })) as { result?: { sessionToken?: unknown } };
   const token = data.result?.sessionToken;
+
   return typeof token === 'string' && token ? token : undefined;
 }
 
@@ -460,6 +528,7 @@ async function signIn(
 async function sessionOf(commonContext: McpContext, sessionToken: string): Promise<unknown> {
   const req = new IncomingMessage(new Socket());
   req.headers.authorization = `Bearer ${sessionToken}`;
+
   return (await commonContext.withRequest(req)).session;
 }
 
@@ -484,6 +553,7 @@ function sendSignInPage(res: Response, status: number, { id, client, redirectUri
   const host = new URL(redirectUri).host;
   const loopback = LOOPBACK_HOSTS.has(new URL(redirectUri).hostname);
   const name = client.client_name ? `“${escapeHtml(client.client_name)}”` : 'An MCP client';
+
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in to connect an MCP client</title>
@@ -504,6 +574,7 @@ ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
 <button type="submit" name="decision" value="allow">Sign in and allow</button>
 <button type="submit" name="decision" value="deny" formnovalidate>Cancel</button>
 </form></body></html>`;
+
   res
     .status(status)
     .set({
@@ -518,8 +589,11 @@ ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
 
 function redirectWith({ redirectUri, state }: AuthorizationParams, values: Record<string, string>): string {
   const url = new URL(redirectUri);
+
   for (const [key, value] of Object.entries(values)) url.searchParams.set(key, value);
+
   if (state !== undefined) url.searchParams.set('state', state);
+
   return url.href;
 }
 
@@ -534,6 +608,7 @@ function resourceUrl(req: Request, path: string): string {
 /** Compares resource URLs without a fragment and one trailing slash, as the SDK's bearer middleware does. */
 function sameResource(a: string, b: string): boolean {
   const comparable = (value: string) => value.replace(/#.*$/, '').replace(/\/$/, '');
+
   return comparable(a) === comparable(b);
 }
 
@@ -557,17 +632,23 @@ function unexpired(value: unknown): boolean {
 /** Returns an unexpired entry and drops an expired one. */
 function live<T>(store: Map<string, T>, key: string): T | undefined {
   const value = store.get(key);
+
   if (value === undefined || unexpired(value)) return value;
   store.delete(key);
+
   return undefined;
 }
 
 /** Adds an entry. Above `MAX_ENTRIES` it drops expired entries and, when `capped`, the oldest entries. */
 function remember<T>(store: Map<string, T>, key: string, value: T, capped = false): void {
   store.set(key, value);
+
   if (store.size <= MAX_ENTRIES) return;
+
   for (const [k, v] of store) if (!unexpired(v)) store.delete(k);
+
   if (!capped) return;
+
   for (const k of store.keys()) {
     if (store.size <= MAX_ENTRIES) break;
     store.delete(k);

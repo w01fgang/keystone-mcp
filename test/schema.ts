@@ -197,27 +197,35 @@ export function fakeContext() {
   const runs: RunRecord[] = [];
   const requests: IncomingMessage[] = [];
   const sessions = new Map<string, { listKey: string; itemId: string }>();
+
   const signInRoot = {
     ...rootValue,
     authenticateUserWithPassword: ({ email, password }: { email: string; password: string }) => {
       if (email !== ADMIN.email || password !== ADMIN.password) {
         return { __typename: 'UserAuthenticationWithPasswordFailure', message: 'Authentication failed.' };
       }
+
       const sessionToken = `keystone-session-${sessions.size + 1}`;
       sessions.set(sessionToken, { listKey: 'User', itemId: '1' });
+
       return { __typename: 'UserAuthenticationWithPasswordSuccess', sessionToken, item: { id: '1' } };
     },
   };
+
   const run = async ({ query, variables }: RunRecord) => {
     runs.push({ query, variables });
     const result = await graphql({ schema, source: query, variableValues: variables, rootValue: signInRoot });
+
     if (result.errors?.length) throw result.errors[0];
+
     return result.data;
   };
+
   const requestContext: McpContext = {
     graphql: { schema, run },
     withRequest: () => Promise.reject(new Error('withRequest on a request context')),
   };
+
   const commonContext: McpContext = {
     graphql: {
       schema,
@@ -226,8 +234,10 @@ export function fakeContext() {
     withRequest: async (req) => {
       requests.push(req);
       const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
+
       return { ...requestContext, session: token ? sessions.get(token) : undefined };
     },
   };
+
   return { commonContext, requestContext, runs, requests, sessions };
 }

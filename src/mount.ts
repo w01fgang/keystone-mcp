@@ -16,13 +16,17 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
     instructions: options.instructions?.trim() || undefined,
     secret: options.secret,
   };
+
   if (!resolved.path.startsWith('/')) throw new TypeError(`keystoneMcp: path must start with "/", got "${resolved.path}".`);
+
   if (!Number.isInteger(resolved.takeLimit) || resolved.takeLimit < 1) {
     throw new TypeError(`keystoneMcp: takeLimit must be a positive integer, got ${resolved.takeLimit}.`);
   }
+
   if (resolved.secret !== undefined && (typeof resolved.secret !== 'string' || resolved.secret.length < 32)) {
     throw new TypeError('keystoneMcp: secret must be a string of 32 characters or more.');
   }
+
   return resolved;
 }
 
@@ -33,10 +37,12 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
  */
 export function keystoneMcp(options: KeystoneMcpOptions = {}) {
   const { path, queriesOnly, takeLimit, introspection, instructions: about, secret } = resolveOptions(options);
+
   const search = introspection
     ? 'search on'
     : `search off (${options.introspection === false ? 'introspection: false' : 'NODE_ENV=production'}); ` +
       'keystoneMcp({ introspection: true }) turns it on';
+
   const signIns = secret ? 'sign-ins sealed with secret' : 'sign-ins end at restart; keystoneMcp({ secret }) keeps them';
 
   return function extendExpressApp(app: Express, commonContext: McpContext): void {
@@ -52,6 +58,7 @@ export function keystoneMcp(options: KeystoneMcpOptions = {}) {
     app.post(path, express.json(), async (req: Request, res: Response) => {
       try {
         const context = await oauth.authenticate(req, res);
+
         if (!context) return;
         const server = createMcpServer({ catalog, context, takeLimit, introspection, instructions });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
@@ -63,6 +70,7 @@ export function keystoneMcp(options: KeystoneMcpOptions = {}) {
         await transport.handleRequest(req, res, req.body);
       } catch (error) {
         console.error('keystone-mcp: the MCP request failed.', error);
+
         if (!res.headersSent) sendJsonRpcError(res, 500, -32603, 'Internal server error.');
       }
     });
@@ -83,6 +91,7 @@ let warnedUntrustedProxy = false;
  */
 function warnUntrustedProxy(req: Request, _res: Response, next: NextFunction): void {
   const forwarded = req.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
+
   if (!warnedUntrustedProxy && forwarded === 'https' && req.protocol === 'http') {
     warnedUntrustedProxy = true;
     console.warn(
@@ -91,6 +100,7 @@ function warnUntrustedProxy(req: Request, _res: Response, next: NextFunction): v
         "Behind a proxy or tunnel that ends TLS, call app.set('trust proxy', 1) in extendExpressApp.",
     );
   }
+
   next();
 }
 

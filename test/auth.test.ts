@@ -10,6 +10,7 @@ import { authorize, CLAUDE_REDIRECT, pkce, register, signIn, submitSignIn, token
 import { ADMIN, fakeContext } from './schema.js';
 
 const servers: Server[] = [];
+
 afterEach(() => Promise.all(servers.splice(0).map((server) => once(server.close(), 'close'))));
 
 const SECRET = 'a test secret for sealed sign-ins, 32 characters or more';
@@ -21,6 +22,7 @@ async function listen(handler: RequestListener) {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   servers.push(server);
+
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
@@ -28,6 +30,7 @@ async function startServer(secret?: string) {
   const fake = fakeContext();
   const app = express();
   keystoneMcp({ secret })(app, fake.commonContext);
+
   return { ...fake, base: await listen(app) };
 }
 
@@ -46,6 +49,7 @@ const listTools = (base: string, accessToken?: string) =>
 async function openSignIn(base: string, redirectUri = CLAUDE_REDIRECT) {
   const clientId = await register(base, [redirectUri]);
   const { verifier, challenge } = pkce();
+
   const page = await authorize(base, {
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -54,6 +58,7 @@ async function openSignIn(base: string, redirectUri = CLAUDE_REDIRECT) {
     code_challenge_method: 'S256',
     state: 'xyz',
   });
+
   return { clientId, verifier, page, html: await page.text() };
 }
 
@@ -106,6 +111,7 @@ describe.each([
     const { base } = await start();
     const clientId = await register(base);
     const withoutS256: Record<string, string>[] = [{ code_challenge: 'abc', code_challenge_method: 'plain' }, { code_challenge_method: 'S256' }];
+
     for (const pkceParams of withoutS256) {
       const response = await authorize(base, { client_id: clientId, redirect_uri: CLAUDE_REDIRECT, response_type: 'code', ...pkceParams });
       expect(response.status).toBe(302);
@@ -115,6 +121,7 @@ describe.each([
 
   it('matches redirect URIs exactly, except the port of a loopback host', async () => {
     const { base } = await start();
+
     const params = (clientId: string, redirect_uri: string) => ({
       client_id: clientId,
       redirect_uri,
@@ -122,12 +129,15 @@ describe.each([
       code_challenge: pkce().challenge,
       code_challenge_method: 'S256',
     });
+
     const hosted = await register(base);
+
     for (const other of ['https://claude.ai/api/mcp/auth_callback/', 'https://claude.ai/other', 'https://evil.example/api/mcp/auth_callback']) {
       const response = await authorize(base, params(hosted, other));
       expect(response.status).toBe(400);
       expect(response.headers.get('location')).toBeNull();
     }
+
     const loopback = await register(base, ['http://localhost/callback', 'http://127.0.0.1/callback']);
     expect((await authorize(base, params(loopback, 'http://localhost:51234/callback'))).status).toBe(200);
     expect((await authorize(base, params(loopback, 'http://127.0.0.1:3118/callback'))).status).toBe(200);
@@ -160,12 +170,16 @@ describe.each([
     const withRequest = commonContext.withRequest;
     commonContext.withRequest = async (req, res) => {
       await sleep(20);
+
       return withRequest(req, res);
     };
+
     const transaction = transactionOf(html);
+
     const responses = await Promise.all(
       Array.from({ length: 10 }, (_, i) => submitSignIn(base, { transaction, identity: ADMIN.email, secret: `wrong-${i}`, decision: 'allow' })),
     );
+
     expect(runs.filter((run) => run.query.includes('KeystoneMcpSignIn'))).toHaveLength(5);
     expect(responses.filter((response) => response.status === 401)).toHaveLength(5);
     expect(responses.filter((response) => response.status === 400)).toHaveLength(5);
@@ -175,18 +189,21 @@ describe.each([
     const { base, commonContext } = await start();
     const { html } = await openSignIn(base);
     commonContext.withRequest = () => Promise.reject(new Error('the database is down'));
+
     const response = await submitSignIn(base, {
       transaction: transactionOf(html),
       identity: ADMIN.email,
       secret: ADMIN.password,
       decision: 'allow',
     });
+
     expect(response.status).toBe(500);
     expect(response.headers.get('location')).toBeNull();
   });
 
   it('marks the metadata documents as uncacheable and varying by Host, because they name the request host', async () => {
     const { base } = await start();
+
     for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server']) {
       const response = await fetch(base + path);
       expect(response.headers.get('cache-control')).toBe('no-store');
@@ -205,10 +222,12 @@ describe.each([
 
   it('exchanges a code only with its PKCE verifier and redirect URI, and in memory only once', async () => {
     const { base } = await start();
+
     const codeFor = async () => {
       const { clientId, verifier, html } = await openSignIn(base);
       const signedIn = await submitSignIn(base, { transaction: transactionOf(html), identity: ADMIN.email, secret: ADMIN.password, decision: 'allow' });
       const code = new URL(signedIn.headers.get('location')!).searchParams.get('code')!;
+
       return (fields: Record<string, string>) =>
         token(base, { grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier, redirect_uri: CLAUDE_REDIRECT, ...fields });
     };
@@ -218,6 +237,7 @@ describe.each([
     const first = await exchange({});
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({ token_type: 'Bearer', expires_in: 3600 });
+
     // A sealed code works until it expires: the server keeps no record of its use.
     if (!secret) expect((await exchange({})).body.error).toBe('invalid_grant');
 
@@ -227,14 +247,17 @@ describe.each([
 
   it('needs redirect_uri at the code exchange only when the authorization request sent one', async () => {
     const { base } = await start();
+
     const exchangeWithoutRedirect = async (authorizeRedirect: Record<string, string>) => {
       const clientId = await register(base);
       const { verifier, challenge } = pkce();
       const page = await authorize(base, { client_id: clientId, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', ...authorizeRedirect });
       const signedIn = await submitSignIn(base, { transaction: transactionOf(await page.text()), identity: ADMIN.email, secret: ADMIN.password, decision: 'allow' });
       const code = new URL(signedIn.headers.get('location')!).searchParams.get('code')!;
+
       return token(base, { grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier });
     };
+
     expect((await exchangeWithoutRedirect({ redirect_uri: CLAUDE_REDIRECT })).body.error).toBe('invalid_grant');
     expect((await exchangeWithoutRedirect({})).status).toBe(200);
   });
@@ -246,6 +269,7 @@ describe.each([
     expect(refreshed.status).toBe(200);
     expect(refreshed.body.refresh_token).not.toBe(refreshToken);
     expect((await listTools(base, refreshed.body.access_token)).status).toBe(200);
+
     if (secret) return;
     const again = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
     expect(again).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
@@ -273,6 +297,7 @@ describe.each([
     const { clientId, accessToken, refreshToken } = await signIn(base);
 
     const rebuilt = fakeContext();
+
     for (const [token, session] of first.sessions) rebuilt.sessions.set(token, session);
     current = express();
     keystoneMcp({ secret })(current, rebuilt.commonContext);
@@ -299,6 +324,7 @@ describe('sealed sign-ins', () => {
   async function serversWith(...secrets: string[]) {
     const fake = fakeContext();
     const apps: express.Express[] = [];
+
     for (const secret of secrets) {
       vi.resetModules();
       const { keystoneMcp: fresh } = await import('../src/mount.js');
@@ -306,8 +332,10 @@ describe('sealed sign-ins', () => {
       fresh({ secret })(app, fake.commonContext);
       apps.push(app);
     }
+
     let current = apps[0]!;
     const base = await listen((req, res) => current(req, res));
+
     return { ...fake, base, serve: (i: number) => void (current = apps[i]!) };
   }
 
@@ -321,6 +349,7 @@ describe('sealed sign-ins', () => {
     const exchanged = await token(base, { grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier, redirect_uri: CLAUDE_REDIRECT });
     expect(exchanged.status).toBe(200);
     let refreshToken = exchanged.body.refresh_token!;
+
     for (const i of [1, 0, 1]) {
       serve(i);
       const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
@@ -348,6 +377,7 @@ describe('sealed sign-ins', () => {
     const other = (at: number) => (value[at] === 'A' ? 'B' : 'A');
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
     const last = value.length - 1;
+
     return [changed(0, other(0)), changed(last >> 1, other(last >> 1)), ...[...alphabet].filter((c) => c !== value[last]).map((c) => changed(last, c))];
   }
 
@@ -356,10 +386,12 @@ describe('sealed sign-ins', () => {
     const { clientId, accessToken, refreshToken } = await signIn(base);
     expect((await listTools(base, accessToken)).status).toBe(200);
     expect((await listTools(base, refreshToken)).status).toBe(401);
+
     for (const value of changedInOneCharacter(accessToken)) expect((await listTools(base, value)).status).toBe(401);
     // This length leaves spare bits in the last character, so the client_id checks that case.
     expect(clientId.length % 4).not.toBe(0);
     const { challenge } = pkce();
+
     for (const value of changedInOneCharacter(clientId)) {
       const params = { client_id: value, redirect_uri: CLAUDE_REDIRECT, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256' };
       expect((await authorize(base, params)).status).toBe(400);

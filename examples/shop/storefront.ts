@@ -24,12 +24,14 @@ export function storefront(app: Express, commonContext: KeystoneContext): void {
     try {
       const context = await commonContext.withRequest(req, res);
       const products = (await context.query.Product.findMany({ orderBy: { name: 'asc' }, query: productFields })) as Product[];
+
       const items = products.map(
         (product) => `<li>
   <a href="/products/${encodeURIComponent(product.slug)}">${escape(product.name)}</a>${draftBadge(product)}
   <span class="meta">${meta(product)}</span>
 </li>`,
       );
+
       res.type('html').send(page('Shop', context.session, `<h1>Products</h1>\n<ul>\n${items.join('\n')}\n</ul>`));
     } catch (error) {
       next(error);
@@ -40,10 +42,13 @@ export function storefront(app: Express, commonContext: KeystoneContext): void {
     try {
       const context = await commonContext.withRequest(req, res);
       const product = (await context.query.Product.findOne({ where: { slug: req.params.slug }, query: productFields })) as Product | null;
+
       if (!product) {
         res.status(404).type('html').send(page('Not found', context.session, '<h1>Not found</h1>\n<p><a href="/">All products</a></p>'));
+
         return;
       }
+
       res.type('html').send(
         page(
           product.name,
@@ -62,6 +67,7 @@ export function storefront(app: Express, commonContext: KeystoneContext): void {
 
 function meta(product: Product): string {
   const stock = product.stock > 0 ? `${product.stock} in stock` : 'sold out';
+
   return `${escape(product.category?.name ?? 'No category')} · ${price.format(product.priceCents / 100)} · ${stock}`;
 }
 
@@ -72,6 +78,7 @@ function draftBadge(product: Product): string {
 
 function page(title: string, session: Session | undefined, body: string): string {
   const user = session ? `Signed in as ${escape(session.data.name)}` : 'Not signed in';
+
   return `<!doctype html>
 <html lang="en">
 <head>

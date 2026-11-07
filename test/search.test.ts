@@ -5,6 +5,7 @@ import type { Catalog } from '../src/types.js';
 import { schema } from './schema.js';
 
 const catalog = buildCatalog(schema);
+
 const names = (text: string, limit?: number, from: Catalog = catalog) =>
   searchCatalog(from, { text, limit }).map((entry) => entry.name);
 
@@ -39,6 +40,7 @@ describe('searchCatalog', () => {
       paths: [],
       leaf: true,
     }));
+
     const big: Catalog = { entries: fields, byName: new Map(fields.map((entry) => [entry.name, entry])) };
     expect(names('op', undefined, big)).toHaveLength(10);
     expect(names('op', 100, big)).toHaveLength(25);

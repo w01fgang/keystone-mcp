@@ -26,7 +26,9 @@ const SCORE = {
 export function searchCatalog(catalog: Catalog, input: SearchInput): CatalogEntry[] {
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? DEFAULT_SEARCH_LIMIT), 1), MAX_SEARCH_LIMIT);
   const words = input.text.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean);
+
   if (words.length === 0) return catalog.entries.slice(0, limit);
+
   return catalog.entries
     .map((entry) => ({ entry, score: scoreEntry(entry, words) }))
     .filter(({ score }) => score > 0)
@@ -41,12 +43,17 @@ function scoreEntry(entry: CatalogEntry, words: string[]): number {
   const description = entry.description?.toLowerCase() ?? '';
   const paths = entry.paths.map((path) => path.toLowerCase());
   let score = 0;
+
   for (const word of words) {
     if (name === word) score += SCORE.exactName;
     else if (name.includes(word)) score += SCORE.name;
+
     if (returnType.includes(word)) score += SCORE.returnType;
+
     if (description.includes(word)) score += SCORE.description;
+
     if (paths.some((path) => path.includes(word))) score += SCORE.path;
   }
+
   return score;
 }

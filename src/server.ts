@@ -76,20 +76,25 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
     },
     async (input) => {
       let call: Call;
+
       try {
         call = buildCall(catalog, input, takeLimit);
       } catch (error) {
         if (error instanceof CallError) return callErrorResult({ code: 'INVALID_INPUT', message: error.message });
         throw error;
       }
+
       try {
         const data = await context.graphql.run({ query: call.document, variables: call.variables });
+
         return textResult(data);
       } catch (error) {
         const neutral = neutralError(error);
+
         if (neutral.message !== undefined) return callErrorResult({ code: neutral.code, message: neutral.message });
         // The agent reads only a fixed sentence, so the app's owner finds the cause here.
         console.error(`keystone-mcp: callTool "${call.entry.name}" failed:`, error);
+
         return callErrorResult({ code: neutral.code, message: FIXED_MESSAGES[neutral.code] });
       }
     },
@@ -151,37 +156,48 @@ function neutralError(error: unknown): { code: ErrorCode; message: string | unde
   if (!(error instanceof GraphQLError)) return { code: 'SERVER_ERROR', message: undefined };
   const code = neutralCode(error);
   let message: string | undefined;
+
   if (code !== 'SERVER_ERROR') {
     const variable = badUserInputVariable(error);
     // The agent passes arguments; `callTool` turns each argument into a variable of the same name.
     message = variable === undefined ? error.message : error.message.replace(`Variable "$${variable}"`, `Argument "${variable}"`);
   }
+
   return { code, message: message !== undefined && TECHNOLOGY.test(message) ? undefined : message };
 }
 
 function neutralCode(error: GraphQLError): ErrorCode {
   const code = error.extensions.code;
+
   if (code === undefined) return badUserInputVariable(error) === undefined ? 'SERVER_ERROR' : 'INVALID_INPUT';
+
   if (code === 'BAD_USER_INPUT') return 'INVALID_INPUT';
   const keystone = typeof code === 'string' ? KEYSTONE_CODES[code] : undefined;
+
   if (keystone !== 'FIELD_ERRORS') return keystone ?? 'SERVER_ERROR';
   // A list of field errors is denied access or invalid input only when every field error is.
   const debug = error.extensions.debug;
   const messages = Array.isArray(debug) ? debug.map((entry: { message?: unknown } | null) => entry?.message) : [];
   const all = (prefix: string) => messages.length > 0 && messages.every((m) => typeof m === 'string' && m.startsWith(prefix));
+
   if (all('Access denied: ')) return 'ACCESS_DENIED';
+
   if (all('Input error: ')) return 'INVALID_INPUT';
+
   return 'SERVER_ERROR';
 }
 
 /** The variable name of an error from variable coercion, by Apollo Server's test in `isBadUserInputGraphQLError`. */
 function badUserInputVariable(error: GraphQLError): string | undefined {
   const node = error.nodes?.length === 1 ? error.nodes[0] : undefined;
+
   if (node?.kind !== Kind.VARIABLE_DEFINITION) return undefined;
   const name = node.variable.name.value;
   const variable = `Variable "$${name}"`;
+
   const coercion = [' has invalid value', ' got invalid value ', ' of required type ', ' of non-null type '].some((rest) =>
     error.message.startsWith(variable + rest),
   );
+
   return coercion ? name : undefined;
 }

@@ -34,6 +34,7 @@ const orders = [
 /** Fills an empty database with the shop's example data. It runs at start, outside any request. */
 export async function seed(context: KeystoneContext): Promise<void> {
   const sudo = context.sudo();
+
   if ((await sudo.db.User.count()) > 0) return;
 
   await sudo.db.User.createMany({ data: seedUsers });

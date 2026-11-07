@@ -24,6 +24,7 @@ interface RecordKind {
 export function buildInstructions(catalog: Catalog, { about, introspection }: InstructionsOptions): string {
   const kinds = recordKinds(catalog);
   const lines: string[] = [];
+
   if (kinds.length > 0) lines.push(`This project holds these kinds of records: ${kinds.map((kind) => kind.words).join(', ')}.`);
   lines.push("You act as the signed-in user. The project's access rules decide what you can read and change.");
   lines.push(
@@ -31,20 +32,27 @@ export function buildInstructions(catalog: Catalog, { about, introspection }: In
       ? 'Search first, then call: searchTool finds an operation and shows its arguments and field paths, and callTool runs it by name.'
       : 'searchTool is off in this project. callTool runs an operation by name, for example one of the operations below.',
   );
+
   if (kinds.length > 0) {
     lines.push('The operations for one record of each kind:');
+
     for (const kind of kinds) {
       const verbs = (['read', 'create', 'update', 'delete'] as const).filter((verb) => kind[verb]);
       lines.push(`- ${kind.words}: ${verbs.map((verb) => `${verb} ${kind[verb]}`).join(', ')}.`);
     }
+
     lines.push('Read, update and delete find the record by where: { id }.');
     const update = kinds.find((kind) => kind.update)?.update;
     const remove = kinds.find((kind) => kind.delete)?.delete;
     lines.push(`Read one record: callTool { operation: "${kinds[0]!.read}", args: { where: { id } }, select: [...] }.`);
+
     if (update) lines.push(`Update one record: callTool { operation: "${update}", args: { where: { id }, data: { ... } } }.`);
+
     if (remove) lines.push(`Delete one record: callTool { operation: "${remove}", args: { where: { id } } }.`);
   }
+
   const generated = lines.join('\n');
+
   return about ? `${about}\n\n${generated}` : generated;
 }
 
@@ -54,17 +62,21 @@ export function buildInstructions(catalog: Catalog, { about, introspection }: In
  */
 function recordKinds(catalog: Catalog): RecordKind[] {
   const kinds: RecordKind[] = [];
+
   for (const entry of catalog.entries) {
     if (entry.kind !== 'query' || !hasArgs(entry, { where: `${entry.returnType}WhereUniqueInput!` })) continue;
     const type = entry.returnType;
+
     const many = catalog.entries.find(
       (other) =>
         other.kind === 'query' &&
         other.returnType === `[${type}!]` &&
         other.args.some((arg) => arg.name === 'where' && arg.type === `${type}WhereInput!`),
     );
+
     const mutation = (args: Record<string, string>) =>
       catalog.entries.find((other) => other.kind === 'mutation' && other.returnType === type && hasArgs(other, args))?.name;
+
     const create = mutation({ data: `${type}CreateInput!` });
     const update = mutation({ where: `${type}WhereUniqueInput!`, data: `${type}UpdateInput!` });
     const remove = mutation({ where: `${type}WhereUniqueInput!` });
@@ -77,11 +89,13 @@ function recordKinds(catalog: Catalog): RecordKind[] {
       ...(remove ? { delete: remove } : {}),
     });
   }
+
   return kinds;
 }
 
 /** `true` when the entry has exactly these arguments, by name and type. */
 function hasArgs(entry: CatalogEntry, args: Record<string, string>): boolean {
   const names = Object.keys(args);
+
   return entry.args.length === names.length && names.every((name) => entry.args.some((arg) => arg.name === name && arg.type === args[name]));
 }

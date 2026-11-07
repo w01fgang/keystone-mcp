@@ -16,6 +16,7 @@ async function connect(context: McpContext, queriesOnly = false, introspection =
   const client = new Client({ name: 'test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
   return client;
 }
 
@@ -34,6 +35,7 @@ describe('createMcpServer', () => {
     const search = await client.callTool({ name: 'searchTool', arguments: { text: 'post' } });
     // The search result itself is catalog data; only the off message is text of this package.
     const texts = [client.getInstructions(), JSON.stringify(tools), introspection ? '' : text(search)];
+
     for (const agentText of texts) expect(agentText).not.toMatch(/keystone|graphql|prisma/i);
   });
 
@@ -65,10 +67,12 @@ describe('createMcpServer', () => {
   it('callTool runs the document with take clamped to 50 and returns the data', async () => {
     const { requestContext, runs } = fakeContext();
     const client = await connect(requestContext);
+
     const result = await client.callTool({
       name: 'callTool',
       arguments: { operation: 'posts', args: { take: 80 }, select: ['id', 'author.name'] },
     });
+
     expect(result.isError).toBeFalsy();
     expect(runs).toEqual([
       { query: 'query KeystoneMcpCall($take: Int) { posts(take: $take) { id author { name } } }', variables: { take: 50 } },
@@ -91,6 +95,7 @@ describe('createMcpServer', () => {
   async function callCreatePostRejectingWith(error: unknown) {
     const context: McpContext = { ...fakeContext().requestContext, graphql: { schema, run: () => Promise.reject(error) } };
     const client = await connect(context);
+
     return client.callTool({ name: 'callTool', arguments: { operation: 'createPost', args: { data: { title: 'x' } }, select: ['id'] } });
   }
 
@@ -99,6 +104,7 @@ describe('createMcpServer', () => {
   const prismaError = Object.assign(new Error('Invalid `prisma.post.create()` invocation: Unique constraint failed on the fields: (`title`)'), {
     name: 'PrismaClientKnownRequestError',
   });
+
   const ksError = (code: string, message: string, debug?: { message: string }[]) => new GraphQLError(message, { extensions: { code, debug } });
   const SERVER_ERROR = "The server could not run this operation. The app's owner can find the cause in the server log.";
 
@@ -145,9 +151,11 @@ describe('createMcpServer', () => {
 
   it('callTool gives a list of field errors the code of its errors only when all of them share it', async () => {
     const denied = 'Access denied: You cannot connect that User - it may not exist';
+
     const relationship = (messages: string[]) =>
       ksError('KS_RELATIONSHIP_ERROR', `An error occurred while resolving relationship fields.\n  - Post.author: ${messages.join(', ')}`,
         messages.map((message) => ({ message })));
+
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const allDenied = JSON.parse(text(await callCreatePostRejectingWith(relationship([denied, denied]))));
     const mixed = JSON.parse(text(await callCreatePostRejectingWith(relationship([denied, 'Input error: no id']))));

@@ -11,7 +11,9 @@ import { signIn } from './oauth.js';
 import { fakeContext } from './schema.js';
 
 const servers: Server[] = [];
+
 afterEach(() => Promise.all(servers.splice(0).map((server) => once(server.close(), 'close'))));
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -27,6 +29,7 @@ async function start(options?: KeystoneMcpOptions) {
   await once(server, 'listening');
   servers.push(server);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
   return { ...fake, base };
 }
 
@@ -36,6 +39,7 @@ async function connect(base: string, path = '/mcp') {
   const client = new Client({ name: 'test', version: '1.0.0' });
   const headers = { Authorization: `Bearer ${accessToken}` };
   await client.connect(new StreamableHTTPClientTransport(new URL(base + path), { requestInit: { headers } }));
+
   return client;
 }
 
@@ -70,11 +74,13 @@ describe('keystoneMcp', () => {
 
   it('parses JSON on the MCP path only', async () => {
     const { base } = await start();
+
     const response = await fetch(`${base}/echo`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ a: 1 }),
     });
+
     expect(await response.json()).toEqual({ body: null });
   });
 
@@ -106,6 +112,7 @@ describe('keystoneMcp', () => {
     const client = await connect(base);
     const result = await client.callTool({ name: 'searchTool', arguments: { text: 'posts' } });
     const text = (result.content as { text: string }[])[0].text;
+
     if (on) {
       expect(result.isError).toBeFalsy();
       expect(JSON.parse(text).operations[0].name).toBe('posts');
@@ -113,6 +120,7 @@ describe('keystoneMcp', () => {
       expect(result.isError).toBe(true);
       expect(text).toContain("Ask the app's owner to turn search on.");
     }
+
     await client.close();
   });
 
@@ -149,13 +157,16 @@ describe('the X-Forwarded-Proto warning', () => {
     vi.resetModules();
     const { keystoneMcp: freshMcp } = await import('../src/mount.js');
     const app = express();
+
     if (trustProxy) app.set('trust proxy', 1);
     freshMcp()(app, fakeContext().commonContext);
     const server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     servers.push(server);
+
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
+
   const metadata = async (url: string) =>
     ((await (await fetch(url, { headers: { 'x-forwarded-proto': 'https' } })).json()) as { resource: string }).resource;
 

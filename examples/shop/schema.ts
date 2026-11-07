@@ -4,6 +4,7 @@ import { checkbox, integer, password, relationship, select, text, timestamp } fr
 
 // The session that `createAuth` in keystone.ts builds: `sessionData` is 'name isAdmin'.
 export type Session = { listKey: 'User'; itemId: string; data: { name: string; isAdmin: boolean } };
+
 type Access = { session?: Session };
 
 const isSignedIn = ({ session }: Access) => Boolean(session);

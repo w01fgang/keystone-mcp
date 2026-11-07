@@ -15,6 +15,7 @@ describe('buildCall', () => {
       { operation: 'posts', args: { where: { title: { contains: 'mcp' } }, take: 5 }, select: ['id', 'author.name', 'author.email', 'title'] },
       50,
     );
+
     expect(call.document).toBe(
       'query KeystoneMcpCall($where: PostWhereInput!, $take: Int) { posts(where: $where, take: $take) { id author { name email } title } }',
     );
