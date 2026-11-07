@@ -16,6 +16,8 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F010-the-test-suite-passes-on-every-run` (🟠 ACTIVE): The test suite passes on every run
+
 ## NEXT
 
 - Nothing planned.
