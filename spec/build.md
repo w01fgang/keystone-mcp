@@ -18,7 +18,7 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 ## NEXT
 
-- No planned ticket.
+- Owner publishes 0.1.1 (two sign-in hardening fixes, on main in `f3499e7`): `npm publish --access public`, then approve the staged version.
 
 ## PROVEN
 
