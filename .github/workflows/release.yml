@@ -1,0 +1,61 @@
+# Each push to master runs the checks. When package.json names a version that npm does not have yet, the job
+# publishes it. npm trusted publishing authenticates the job (OIDC), so the repository holds no npm token.
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Node 24 ships npm 11.5.1 or later, which trusted publishing needs. No cache: a poisoned cache in a publishing
+      # job could read the OIDC token.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Decide whether to publish
+        id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "keystone-mcp@$version" version --json > /dev/null 2>&1; then
+            echo "keystone-mcp $version is already on npm; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$version" == *-* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            latest=$(npm view keystone-mcp dist-tags.latest)
+            if [[ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -n 1)" != "$version" ]]; then
+              echo "::error::package.json version $version is lower than latest $latest on npm."
+              exit 1
+            fi
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      # prepublishOnly runs the tests and the build again; the steps above already did, so skip it.
+      - if: steps.version.outputs.publish == 'true'
+        run: npm publish --ignore-scripts --tag "${{ steps.version.outputs.tag }}"
