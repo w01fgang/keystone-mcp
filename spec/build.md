@@ -16,6 +16,8 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F006-every-keystone-field-type-works-through-searchtool-and-calltool` (🟠 ACTIVE): Every Keystone field type works through searchTool and callTool
+
 ## NEXT
 
 - Owner publishes 0.1.1 (two sign-in hardening fixes, on main in `f3499e7`): `npm publish --access public`, then approve the staged version.
