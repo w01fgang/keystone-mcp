@@ -16,6 +16,7 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F004-agents-learn-what-the-project-is-when-they-connect-to-mcp` (🟠 ACTIVE): Agents learn what the project is when they connect to /mcp
 - `F002-keystone-admins-connect-claude-desktop-to-mcp-by-signing-in-with-their-browser` (🟠 ACTIVE): Keystone admins connect Claude Desktop to /mcp by signing in with their browser
 
 ## NEXT

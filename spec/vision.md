@@ -7,8 +7,9 @@
 - `keystone-mcp` is a standalone npm package. It mounts an MCP endpoint on the existing Express server of a Keystone 6 app.
 - The package does not modify `@keystone-6/core`. It uses only the public hook `server.extendExpressApp` and the public context.
 - The MCP surface is two tools: `searchTool` finds GraphQL operations, and `callTool` runs one operation.
+- What the agent reads tells it about the project, not the technology under it: no Keystone, GraphQL or Prisma in the instructions or tool text (owner, 2026-11-07).
 - The catalog comes from the public GraphQL schema of the app. Access control stays with Keystone: `callTool` runs as the session of the request, never through `sudo` or `internal`.
-- The app author controls the surface with four options: `path` (default `/mcp`), `queriesOnly` (default `false`), `takeLimit` (default `50`) and `introspection` (default: off when `NODE_ENV=production`, on otherwise, as Apollo's default).
+- The app author controls the surface with five options: `path` (default `/mcp`), `queriesOnly` (default `false`), `takeLimit` (default `50`), `introspection` (default: off when `NODE_ENV=production`, on otherwise, as Apollo's default) and `instructions` (a paragraph about the project, default none).
 
 ## Current direction
 
