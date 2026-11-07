@@ -6,7 +6,10 @@ import { buildCall, type Call } from './call.js';
 import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, searchCatalog } from './search.js';
 import { CallError, type Catalog, type McpContext } from './types.js';
 
-export const SERVER_INFO = { name: 'keystone-mcp', version: '0.1.1' };
+export const SERVER_INFO = { name: 'keystone-mcp', version: '0.1.2' };
+
+/** The most field paths that one `callTool` may select. A longer list is refused before it is read item by item. */
+export const MAX_SELECT_PATHS = 500;
 
 /**
  * The text that the agent reads: tool descriptions, argument descriptions and the search-off message. Like the
@@ -63,8 +66,12 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
         'select lists field paths from searchTool; without select, the call returns the top-level paths.',
       inputSchema: {
         operation: z.string().describe('The operation name from searchTool, for example "posts".'),
-        args: z.record(z.unknown()).optional().describe('Argument values by argument name.'),
-        select: z.array(z.string()).optional().describe('Field paths from searchTool, for example ["id", "author.name"].'),
+        args: z.record(z.string(), z.unknown()).optional().describe('Argument values by argument name.'),
+        select: z
+          .array(z.string())
+          .max(MAX_SELECT_PATHS)
+          .optional()
+          .describe(`Field paths from searchTool, for example ["id", "author.name"]. At most ${MAX_SELECT_PATHS}.`),
       },
     },
     async (input) => {

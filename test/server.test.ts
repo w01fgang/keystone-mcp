@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GraphQLError, locatedError } from 'graphql';
 import { buildCatalog } from '../src/catalog.js';
 import { buildInstructions } from '../src/instructions.js';
-import { createMcpServer } from '../src/server.js';
+import { createMcpServer, MAX_SELECT_PATHS } from '../src/server.js';
 import type { McpContext } from '../src/types.js';
 import { fakeContext, schema } from './schema.js';
 
@@ -50,6 +50,16 @@ describe('createMcpServer', () => {
     const client = await connect(fakeContext().requestContext);
     const result = await client.callTool({ name: 'searchTool', arguments: { text: 'posts', limit: 26 } });
     expect(result.isError).toBe(true);
+  });
+
+  it('callTool refuses more select paths than the limit before it runs the operation', async () => {
+    const { requestContext, runs } = fakeContext();
+    const client = await connect(requestContext);
+    const select = Array.from({ length: MAX_SELECT_PATHS + 1 }, () => 'id');
+    const result = await client.callTool({ name: 'callTool', arguments: { operation: 'posts', select } });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain('select');
+    expect(runs).toEqual([]);
   });
 
   it('callTool runs the document with take clamped to 50 and returns the data', async () => {
