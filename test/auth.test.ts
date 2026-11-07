@@ -1,5 +1,5 @@
 import { once } from 'node:events';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
 import express from 'express';
@@ -246,6 +246,28 @@ describe('OAuth for /mcp', () => {
     const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
     expect(refreshed.body.error).toBe('invalid_grant');
     expect(refreshed.body.error_description).not.toMatch(/keystone/i);
+  });
+
+  it('keeps clients and tokens when a dev rebuild mounts the endpoint again', async () => {
+    // keystone dev serves each rebuild from a new Express app, a new context and a new keystoneMcp() on the same server.
+    const first = fakeContext();
+    let current = express();
+    keystoneMcp()(current, first.commonContext);
+    const server = createServer((req, res) => current(req, res));
+    server.listen(0);
+    await once(server, 'listening');
+    servers.push(server);
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const { clientId, accessToken, refreshToken } = await signIn(base);
+
+    const rebuilt = fakeContext();
+    for (const [token, session] of first.sessions) rebuilt.sessions.set(token, session);
+    current = express();
+    keystoneMcp()(current, rebuilt.commonContext);
+    expect((await listTools(base, accessToken)).status).toBe(200);
+    expect(rebuilt.requests.at(-1)?.headers.authorization).toBe('Bearer keystone-session-1');
+    const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
+    expect(refreshed.status).toBe(200);
   });
 
   it('refuses to mount on a schema without a password sign-in mutation', () => {

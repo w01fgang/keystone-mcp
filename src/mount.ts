@@ -1,5 +1,5 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import express, { type Express, type Request, type Response } from 'express';
+import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import { mountOAuth } from './auth.js';
 import { buildCatalog } from './catalog.js';
 import { buildInstructions } from './instructions.js';
@@ -29,12 +29,20 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
  */
 export function keystoneMcp(options: KeystoneMcpOptions = {}) {
   const { path, queriesOnly, takeLimit, introspection, instructions: about } = resolveOptions(options);
+  const search = introspection
+    ? 'search on'
+    : `search off (${options.introspection === false ? 'introspection: false' : 'NODE_ENV=production'}); ` +
+      'keystoneMcp({ introspection: true }) turns it on';
 
   return function extendExpressApp(app: Express, commonContext: McpContext): void {
     // Keystone calls extendExpressApp again after each dev rebuild, with the new schema.
     const catalog = buildCatalog(commonContext.graphql.schema, { queriesOnly });
     const instructions = buildInstructions(catalog, { about, introspection });
+    app.use([path, '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server'], warnUntrustedProxy);
     const oauth = mountOAuth(app, commonContext, path);
+    console.log(
+      `keystone-mcp: MCP endpoint at ${path}: ${catalog.entries.length} operations, ${search}, sign-in with ${oauth.mutation.name}.`,
+    );
 
     app.post(path, express.json(), async (req: Request, res: Response) => {
       try {
@@ -59,6 +67,26 @@ export function keystoneMcp(options: KeystoneMcpOptions = {}) {
     app.get(path, methodNotAllowed);
     app.delete(path, methodNotAllowed);
   };
+}
+
+/** Once per process: a dev rebuild mounts again, and one warning is enough. */
+let warnedUntrustedProxy = false;
+
+/**
+ * Warns when a proxy says the request came over https, but Express does not trust the proxy and reads http.
+ * The OAuth URLs then use http, and a client that connected over https refuses them.
+ */
+function warnUntrustedProxy(req: Request, _res: Response, next: NextFunction): void {
+  const forwarded = req.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
+  if (!warnedUntrustedProxy && forwarded === 'https' && req.protocol === 'http') {
+    warnedUntrustedProxy = true;
+    console.warn(
+      `keystone-mcp: a request to ${req.baseUrl}${req.path === '/' ? '' : req.path} has X-Forwarded-Proto: https, ` +
+        'but Express reads it as http, so the OAuth URLs use http and MCP clients refuse them. ' +
+        "Behind a proxy or tunnel that ends TLS, call app.set('trust proxy', 1) in extendExpressApp.",
+    );
+  }
+  next();
 }
 
 function sendJsonRpcError(res: Response, status: number, code: number, message: string): void {

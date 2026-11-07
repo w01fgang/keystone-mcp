@@ -21,12 +21,15 @@ npm install
 npm run build
 cd examples/shop
 npm install
+export SESSION_SECRET="$(openssl rand -hex 32)"
 npm run dev
 ```
 
 - `npm run build` in the repository root builds the package into `dist`. The example depends on it with `"keystone-mcp": "file:../.."`.
 - The `.npmrc` of the example sets `install-links=true`, so npm installs the package as a copy, not as a link. The copy then shares the `graphql` and `express` copies of Keystone.
 - On the first start, Keystone creates `keystone.db` (SQLite) and the seed data. It also writes the Prisma client and the TypeScript types into `generated/`, which Git ignores.
+- `SESSION_SECRET` keeps the sign-ins of the Admin UI and of MCP clients when `keystone dev` rebuilds after you edit a file. Without it, Keystone makes a new session secret each time it loads `keystone.ts`.
+- The log shows the MCP endpoint: `keystone-mcp: MCP endpoint at /mcp: 48 operations, search on, sign-in with authenticateUserWithPassword.`
 
 Open:
 
@@ -55,9 +58,21 @@ The rules are in `schema.ts`. Keystone applies them to every request: the storef
 | A signed-in customer | Reads published products and all categories | Reads their own | Reads their own |
 | An admin | Reads and writes everything, drafts included | Reads and writes all | Reads and writes all |
 
-Only an admin can open the Admin UI (`ui.isAccessAllowed`). A customer uses the storefront and Claude.
+Only an admin can open the Admin UI (`ui.isAccessAllowed`). A customer uses the storefront and an MCP client.
 
 The storefront reads with `context.withRequest(req, res)`, so it sees what the session of the request may see. An anonymous visitor does not see the draft products; a signed-in admin sees them with a `draft` badge.
+
+## Connect MCP Inspector on your computer
+
+A client on your computer connects to `http://localhost:3000/mcp` directly, with no tunnel.
+
+1. Run `npx @modelcontextprotocol/inspector`. It opens its page in the browser.
+2. Click **Add Servers**, then **+ Add manually**. Enter the server ID `shop`, choose the transport `streamable-http`, enter the URL `http://localhost:3000/mcp`, and click **Add**.
+3. Turn on the switch of the `shop` server. The browser opens the sign-in page of the shop. It says that the browser goes to `127.0.0.1:6274`, the address of MCP Inspector.
+4. Sign in as `carl@example.com` with `shop-carl-1234`, and click **Sign in and allow**. MCP Inspector shows the server as connected.
+5. Open **Tools** and choose `callTool`. Enter the operation `products` and the select `["name", "priceCents"]`, and click **Execute Tool**. The result lists the six published products; Carl does not see the two drafts.
+
+Edit `schema.ts`, for example add `graphql: { omit: { delete: true } }` to `Category`. `keystone dev` rebuilds and logs `46 operations`. The signed-in client keeps working with the same token, without a new sign-in.
 
 ## Reach the app over HTTPS
 
@@ -81,7 +96,7 @@ The tunnel ends TLS and forwards plain HTTP to the app. `keystone.ts` sets Expre
 6. Check that the page says your browser goes to `claude.ai`. Sign in as `admin@example.com` with `shop-admin-1234`, and click **Sign in and allow**.
 7. The browser returns to Claude, and the connector shows as connected.
 
-The sign-in lives in the memory of the app. After a restart, or after a dev rebuild when you edit a file, connect again in Claude. The app also makes a new session secret at each start unless you set `SESSION_SECRET` to a random string of 32 characters or more.
+The sign-in lives in the memory of the app. It survives a dev rebuild when `SESSION_SECRET` is set. After a restart, connect again in Claude.
 
 ## Ask Claude
 
@@ -104,4 +119,4 @@ npm run build
 NODE_ENV=production SESSION_SECRET="$(openssl rand -hex 32)" npm start
 ```
 
-With `NODE_ENV=production`, `keystoneMcp()` turns introspection off by default, and `searchTool` returns an error that names the `introspection` option; `callTool` still works. To keep `searchTool`, pass `keystoneMcp({ introspection: true })`.
+With `NODE_ENV=production`, `keystoneMcp()` turns introspection off by default. The log says `search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on`, and `searchTool` returns an error that asks for search to be turned on; `callTool` still works. To keep `searchTool`, pass `keystoneMcp({ introspection: true })`.

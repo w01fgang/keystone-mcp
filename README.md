@@ -1,16 +1,17 @@
 # keystone-mcp
 
 Mount an [MCP](https://modelcontextprotocol.io) endpoint on the Express server of a Keystone 6 app.
-MCP clients get two tools:
 
-- `searchTool` finds the GraphQL queries and mutations of the app, with their argument signatures and the field paths that a call can select.
-- `callTool` runs one of these operations as the user who signed in.
+## What the users of your app get
 
-An MCP client such as Claude Desktop connects with OAuth: the user signs in with their Keystone email and password in the browser, and the client then acts as that user. Keystone access control decides what it can do.
+- A user adds `https://<your app>/mcp` to an MCP client, such as Claude Desktop, Claude Code or MCP Inspector. The client opens a page of your app, where the user signs in with their email and password and allows the client.
+- The agent in the client gets two tools. `searchTool` finds the queries and mutations of the app, with their arguments and the field paths that a call can select. `callTool` runs one of them.
+- The agent acts as the user who signed in. Keystone access control decides what it can read and change, as in the Admin UI: a user who may not update a post cannot update it through the agent either.
+- When it connects, the agent reads a short description of the project: your paragraph, then the kinds of records in plain words.
 
 The package uses only the public hook `server.extendExpressApp` and the public context. It does not modify `@keystone-6/core`.
 
-For a working app, start with the shop example in [`examples/shop`](examples/shop/README.md): a small Keystone 6 shop with access rules, seed data, a storefront, and the steps to connect Claude Desktop.
+For a working app, start with the shop example in [`examples/shop`](examples/shop/README.md): a small Keystone 6 shop with access rules, seed data, a storefront, and the steps to connect MCP Inspector and Claude Desktop.
 
 ## Install
 
@@ -62,6 +63,102 @@ server: {
 },
 ```
 
+At start, and again after each `keystone dev` rebuild, the server log shows one line for the endpoint:
+
+```text
+keystone-mcp: MCP endpoint at /mcp: 48 operations, search on, sign-in with authenticateUserWithPassword.
+```
+
+It names the path, the number of operations that the agent can find, whether `searchTool` is on, and the mutation that the sign-in page runs. When search is off, the line names the reason and the option that turns it on: `search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on`.
+
+## Try it on your computer
+
+An MCP client that runs on your computer, such as MCP Inspector or Claude Code, connects to `http://localhost:3000/mcp` directly. It needs no tunnel, no HTTPS and no `trust proxy`.
+
+1. Start the app with a fixed session secret:
+
+   ```sh
+   export SESSION_SECRET="$(openssl rand -hex 32)"
+   npm run dev
+   ```
+
+   `keystone.ts` must pass it to the session, for example `session: statelessSessions({ secret: process.env.SESSION_SECRET })`. Without a fixed secret, Keystone makes a new one each time it loads `keystone.ts`, also at each dev rebuild, and the client must sign in again after each edit.
+
+2. Find the mount line in the log: `keystone-mcp: MCP endpoint at /mcp: … operations, search on, …`.
+
+3. Connect a client.
+
+   - MCP Inspector: run `npx @modelcontextprotocol/inspector`. It opens its page in the browser. Click **Add Servers**, then **+ Add manually**. Enter the server ID `shop`, choose the transport `streamable-http`, enter the URL `http://localhost:3000/mcp`, and click **Add**. Then turn on the switch of the `shop` server.
+   - Claude Code: run `claude mcp add --transport http shop http://localhost:3000/mcp`. `claude mcp list` then shows `shop` with `! Needs authentication`. In Claude Code, run `/mcp`, choose `shop`, and choose **Authenticate**.
+
+4. The browser opens the sign-in page of the app. The page says where the browser goes next: the client's own address on your computer, for example `127.0.0.1:6274` for MCP Inspector. Sign in as a user of the app, and click **Sign in and allow**.
+
+5. Run a call. In MCP Inspector, open **Tools** and choose `callTool`. Enter the operation `products` and the select `["name"]`, and click **Execute Tool**. The result holds the products that this user may read. In Claude Code, ask for the products.
+
+After a schema edit, `keystone dev` rebuilds and logs the mount line again, with the new number of operations. The client stays signed in. After a restart of the process, it signs in again.
+
+## Before you deploy
+
+- **`SESSION_SECRET`.** Set a random string of 32 characters or more, and pass it to `statelessSessions`. Without it, each start makes a new secret, and every user signs in again.
+- **`trust proxy`.** Behind a proxy or tunnel that ends TLS, set Express `trust proxy` in `extendExpressApp`. Without it, Express reads each request as `http`, the OAuth URLs use `http`, and a client that connected over `https` refuses them. The server log warns once per process when a request has `X-Forwarded-Proto: https` but Express reads `http`:
+
+  ```text
+  keystone-mcp: a request to /.well-known/oauth-protected-resource/mcp has X-Forwarded-Proto: https, but Express reads it as http, so the OAuth URLs use http and MCP clients refuse them. Behind a proxy or tunnel that ends TLS, call app.set('trust proxy', 1) in extendExpressApp.
+  ```
+
+  ```ts
+  const mcp = keystoneMcp();
+
+  server: {
+    extendExpressApp: (app, context) => {
+      app.set('trust proxy', 1);
+      mcp(app, context);
+    },
+  },
+  ```
+
+- **`introspection`.** With `NODE_ENV=production`, `searchTool` is off by default, as in Apollo Server, and the mount line says so. To keep search, pass `keystoneMcp({ introspection: true })`. `callTool` works either way.
+- **One process.** Clients and tokens live in the memory of the process. They survive a dev rebuild, but not a restart, and another process does not know them. Run one process per app.
+
+## Connect Claude Desktop
+
+Claude connects from Anthropic's cloud (`160.79.104.0/21`), so the app must be reachable over public HTTPS. For a local app, use a tunnel, for example `cloudflared tunnel --url http://localhost:3000`, and set `trust proxy` (see [Before you deploy](#before-you-deploy)). To try the endpoint without a tunnel, use a local client: see [Try it on your computer](#try-it-on-your-computer).
+
+1. In Claude Desktop, open **Customize > Connectors**. On a Team or Enterprise plan, an Owner adds the connector in **Organization settings > Connectors** with **Add**, then **Custom**.
+2. Click **Add custom connector**.
+3. Enter a name, for example `Keystone`, and the URL of the endpoint, for example `https://cms.example.com/mcp`. The URL must be the app's public origin followed by `path`.
+4. If the dialog asks how Claude identifies itself, choose **Register automatically**. The package supports dynamic client registration, not Claude's published identity. Leave the OAuth client ID and secret empty.
+5. Click **Add**, then **Connect**. A browser window opens the sign-in page of the app.
+6. Check that the page says your browser goes to `claude.ai`. Enter your Keystone email and password, and click **Sign in and allow**.
+7. The browser returns to Claude, and the connector shows as connected. Ask Claude, for example, "Find the posts with draft status and publish the first one."
+
+Claude acts as the user who signed in. A user who may not update a post in the Admin UI cannot update it through Claude either.
+
+## Control what the agent can do
+
+Keystone access control applies to each call. Two more levers exist in Keystone today.
+
+**Hide a list or an operation with `graphql.omit`.** The catalog comes from the public GraphQL schema, so an operation that the schema omits is gone from `searchTool` and `callTool`, and from `/api/graphql` too:
+
+```ts
+Category: list({
+  access: allowAll,
+  // No deleteCategory and no deleteCategories, for any client.
+  graphql: { omit: { delete: true } },
+  fields: { /* ... */ },
+}),
+```
+
+**Tell an MCP call from other calls with `context.req`.** `callTool` runs with the context of the `POST <path>` request, so a hook sees `context.req.url` equal to `path`, for example `/mcp`. A request to `/api/graphql` has another `url`:
+
+```ts
+hooks: {
+  beforeOperation: ({ operation, context }) => {
+    if (context.req?.url === '/mcp') console.log(`An MCP client runs ${operation}.`);
+  },
+},
+```
+
 ## Options
 
 | Option        | Default | Effect                                                                    |
@@ -101,33 +198,8 @@ The package is the OAuth authorization server for its own endpoint. It serves:
 - Redirect URIs match exactly. Only the port of a loopback redirect (`localhost`, `127.0.0.1`, `[::1]`) can differ from the registered one.
 - The sign-in page runs the app's password mutation. The Keystone session token stays on the server; the client gets its own access token (1 hour) and refresh token.
 - The grant ends with the Keystone session: when the session expires (`statelessSessions` `maxAge`, 8 hours by default) or the user is deleted, `/mcp` answers `401` and refresh answers `invalid_grant`, so the client asks the user to sign in again.
-- Clients and tokens live in the memory of the process. After a restart or a dev rebuild, each user signs in again. Run one process per app.
-- The issuer and resource URLs come from each request: `req.protocol` and the `Host` header. Behind a proxy or tunnel that ends TLS, set Express `trust proxy`, so that the URLs use `https`:
-
-```ts
-const mcp = keystoneMcp();
-
-server: {
-  extendExpressApp: (app, context) => {
-    app.set('trust proxy', 1);
-    mcp(app, context);
-  },
-},
-```
-
-## Connect Claude Desktop
-
-Claude connects from Anthropic's cloud (`160.79.104.0/21`), so the app must be reachable over public HTTPS. For a local app, use a tunnel, for example `cloudflared tunnel --url http://localhost:3000`, and set `trust proxy` as above.
-
-1. In Claude Desktop, open **Customize > Connectors**. On a Team or Enterprise plan, an Owner adds the connector in **Organization settings > Connectors** with **Add**, then **Custom**.
-2. Click **Add custom connector**.
-3. Enter a name, for example `Keystone`, and the URL of the endpoint, for example `https://cms.example.com/mcp`. The URL must be the app's public origin followed by `path`.
-4. If the dialog asks how Claude identifies itself, choose **Register automatically**. The package supports dynamic client registration, not Claude's published identity. Leave the OAuth client ID and secret empty.
-5. Click **Add**, then **Connect**. A browser window opens the sign-in page of the app.
-6. Check that the page says your browser goes to `claude.ai`. Enter your Keystone email and password, and click **Sign in and allow**.
-7. The browser returns to Claude, and the connector shows as connected. Ask Claude, for example, "Find the posts with draft status and publish the first one."
-
-Claude acts as the user who signed in. A user who may not update a post in the Admin UI cannot update it through Claude either.
+- Clients and tokens live in the memory of the process. They survive a `keystone dev` rebuild, because Keystone keeps the package loaded. After a restart, each user signs in again. Run one process per app.
+- The issuer and resource URLs come from each request: `req.protocol` and the `Host` header. Behind a proxy or tunnel that ends TLS, set Express `trust proxy`, so that the URLs use `https`. See [Before you deploy](#before-you-deploy).
 
 ## Tool input
 

@@ -12,7 +12,10 @@ import { fakeContext } from './schema.js';
 
 const servers: Server[] = [];
 afterEach(() => Promise.all(servers.splice(0).map((server) => once(server.close(), 'close'))));
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 async function start(options?: KeystoneMcpOptions) {
   const fake = fakeContext();
@@ -52,6 +55,8 @@ describe('keystoneMcp', () => {
     expect(result.isError).toBeFalsy();
     expect(runs.at(-1)).toEqual({ query: 'query KeystoneMcpCall($take: Int) { posts(take: $take) { id } }', variables: { take: 50 } });
     expect(requests.at(-1)?.headers.authorization).toBe('Bearer keystone-session-1');
+    // A hook tells an MCP call from other calls by context.req.
+    expect(requests.at(-1)?.url).toBe('/mcp');
     await client.close();
   });
 
@@ -116,5 +121,49 @@ describe('keystoneMcp', () => {
     expect(runs.at(-1)?.variables).toEqual({ take: 2 });
     expect(client.getInstructions()).toContain('- posts: read post, create createPost, update updatePost, delete deletePost.');
     await client.close();
+  });
+
+  it.each([
+    { nodeEnv: 'development', introspection: undefined, search: 'search on' },
+    { nodeEnv: 'production', introspection: undefined, search: 'search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on' },
+    { nodeEnv: 'development', introspection: false, search: 'search off (introspection: false); keystoneMcp({ introspection: true }) turns it on' },
+  ])('logs one mount line with NODE_ENV=$nodeEnv and introspection $introspection', async ({ nodeEnv, introspection, search }) => {
+    vi.stubEnv('NODE_ENV', nodeEnv);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await start({ introspection, path: '/ai' });
+    expect(log.mock.calls).toEqual([[`keystone-mcp: MCP endpoint at /ai: 9 operations, ${search}, sign-in with authenticateUserWithPassword.`]]);
+  });
+});
+
+describe('the X-Forwarded-Proto warning', () => {
+  async function startFresh(trustProxy: boolean) {
+    // A fresh module, because the warning is once per process.
+    vi.resetModules();
+    const { keystoneMcp: freshMcp } = await import('../src/mount.js');
+    const app = express();
+    if (trustProxy) app.set('trust proxy', 1);
+    freshMcp()(app, fakeContext().commonContext);
+    const server = app.listen(0);
+    await once(server, 'listening');
+    servers.push(server);
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const metadata = async (url: string) =>
+    ((await (await fetch(url, { headers: { 'x-forwarded-proto': 'https' } })).json()) as { resource: string }).resource;
+
+  it('warns once, naming trust proxy, when a proxy forwards https and Express does not trust it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const base = await startFresh(false);
+    expect(await metadata(`${base}/.well-known/oauth-protected-resource/mcp`)).toMatch(/^http:/);
+    await fetch(`${base}/mcp`, { method: 'POST', headers: { 'x-forwarded-proto': 'https' } });
+    expect(warn.mock.calls).toEqual([[expect.stringContaining("X-Forwarded-Proto: https, but Express reads it as http")]]);
+    expect(warn.mock.calls[0]![0]).toContain("app.set('trust proxy', 1)");
+  });
+
+  it('stays silent when Express trusts the proxy', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const base = await startFresh(true);
+    expect(await metadata(`${base}/.well-known/oauth-protected-resource/mcp`)).toMatch(/^https:/);
+    expect(warn).not.toHaveBeenCalled();
   });
 });

@@ -91,6 +91,8 @@ interface CodeRecord extends Grant, Expiring {
 type TokenRecord = Grant & Expiring;
 
 export interface McpOAuth {
+  /** The app's password mutation that the sign-in page runs. */
+  mutation: PasswordMutation;
   /**
    * Verifies the bearer token of an MCP request and returns the request context of its Keystone session.
    * Without a valid token or a live session it answers `401` with `WWW-Authenticate` and returns `undefined`.
@@ -98,10 +100,34 @@ export interface McpOAuth {
   authenticate(req: Request, res: Response): Promise<McpContext | undefined>;
 }
 
+interface OAuthStores {
+  clients: Map<string, OAuthClientInformationFull>;
+  pendingSignIns: Map<string, PendingSignIn>;
+  codes: Map<string, CodeRecord>;
+  accessTokens: Map<string, TokenRecord>;
+  refreshTokens: Map<string, TokenRecord>;
+}
+
+/**
+ * The stores of each MCP path, for the life of the process. `keystone dev` calls extendExpressApp again after each
+ * rebuild, with a new Express app and context, but keeps this module loaded, so clients and tokens survive a rebuild.
+ */
+const storesByPath = new Map<string, OAuthStores>();
+
+function storesOf(path: string): OAuthStores {
+  let stores = storesByPath.get(path);
+  if (!stores) {
+    stores = { clients: new Map(), pendingSignIns: new Map(), codes: new Map(), accessTokens: new Map(), refreshTokens: new Map() };
+    storesByPath.set(path, stores);
+  }
+  return stores;
+}
+
 /**
  * Mounts an OAuth 2.1 authorization server for the MCP endpoint at `path`: metadata, dynamic client registration,
  * an authorize step with a sign-in and consent page, and a token endpoint with S256 PKCE and refresh-token rotation.
- * Sign-in runs the app's password mutation, so Keystone stays the only user store. State is in memory.
+ * Sign-in runs the app's password mutation, so Keystone stays the only user store. State is in the memory of the
+ * process and survives a new mount at the same path.
  */
 export function mountOAuth(app: Express, commonContext: McpContext, path: string): McpOAuth {
   const mutation = findPasswordMutation(commonContext.graphql.schema);
@@ -119,11 +145,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     revoke: `${path}/oauth/revoke`,
   };
 
-  const clients = new Map<string, OAuthClientInformationFull>();
-  const pendingSignIns = new Map<string, PendingSignIn>();
-  const codes = new Map<string, CodeRecord>();
-  const accessTokens = new Map<string, TokenRecord>();
-  const refreshTokens = new Map<string, TokenRecord>();
+  const { clients, pendingSignIns, codes, accessTokens, refreshTokens } = storesOf(path);
 
   const clientsStore: OAuthRegisteredClientsStore = {
     getClient: (clientId) => clients.get(clientId),
@@ -304,6 +326,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
   });
 
   return {
+    mutation,
     async authenticate(req, res) {
       const resource = resourceUrl(req, path);
       const metadataUrl = `${origin(req)}/.well-known/oauth-protected-resource${path}`;
