@@ -6,6 +6,7 @@ touches:
   - keystone-mcp.server
   - keystone-mcp.mount
   - keystone-mcp.catalog
+landed: 2026-11-07
 ---
 
 # F011 · The code passes every anti-slop lint rule
