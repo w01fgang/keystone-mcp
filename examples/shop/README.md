@@ -94,7 +94,7 @@ Signed in as the admin, try:
 
 Claude finds the operations with `searchTool` and runs them with `callTool`. Each change shows in the storefront and in the Admin UI.
 
-Disconnect, connect again as `carl@example.com`, and ask "Show my orders": Claude sees Carl's two orders only. Ask it to change the stock of a product: Keystone denies the update with `KS_ACCESS_DENIED`, as it would in the Admin UI.
+Disconnect, connect again as `carl@example.com`, and ask "Show my orders": Claude sees Carl's two orders only. Ask it to change the stock of a product: the shop denies the update, and Claude gets the code `ACCESS_DENIED`, as the Admin UI would deny it.
 
 ## Run as in production
 

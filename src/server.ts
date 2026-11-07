@@ -72,14 +72,18 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
       try {
         call = buildCall(catalog, input, takeLimit);
       } catch (error) {
-        if (error instanceof CallError) return errorResult(error.message);
+        if (error instanceof CallError) return callErrorResult({ code: 'INVALID_INPUT', message: error.message });
         throw error;
       }
       try {
         const data = await context.graphql.run({ query: call.document, variables: call.variables });
         return textResult(data);
       } catch (error) {
-        return errorResult(JSON.stringify({ errors: [formatGraphQLError(error)] }));
+        const neutral = neutralError(error);
+        if (neutral.message !== undefined) return callErrorResult({ code: neutral.code, message: neutral.message });
+        // The agent reads only a fixed sentence, so the app's owner finds the cause here.
+        console.error(`keystone-mcp: callTool "${call.entry.name}" failed:`, error);
+        return callErrorResult({ code: neutral.code, message: FIXED_MESSAGES[neutral.code] });
       }
     },
   );
@@ -95,34 +99,82 @@ function errorResult(message: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: message }] };
 }
 
-/**
- * Formats a rejection from `graphql.run` as Keystone's `/api/graphql` formats the same error, so a client sees
- * the same message and code on both paths. Keystone does not export its formatter, so this follows its steps:
- * - Apollo Server gives a variable that fails coercion the code `BAD_USER_INPUT`
- *   (`isBadUserInputGraphQLError` in `@apollo/server` `requestPipeline`).
- * - Apollo Server gives an error without a code the code `INTERNAL_SERVER_ERROR` (`enrichError` in `errorNormalize`).
- * - Keystone replaces an error that Prisma caused with "Prisma error" and the code `KS_PRISMA_ERROR`
- *   (`formatError` in `@keystone-6/core` `src/lib/express.ts`).
- * Only the message and the code go to the client. The app's `graphql.apolloConfig.formatError` does not run here.
- */
-function formatGraphQLError(error: unknown): { message: string; extensions: { code: unknown } } {
-  if (error instanceof GraphQLError && error.originalError?.name.startsWith('Prisma')) {
-    return { message: 'Prisma error', extensions: { code: 'KS_PRISMA_ERROR' } };
-  }
-  if (!(error instanceof Error)) {
-    return { message: `Unexpected error value: ${String(error)}`, extensions: { code: 'INTERNAL_SERVER_ERROR' } };
-  }
-  const code = error instanceof GraphQLError ? error.extensions.code : undefined;
-  if (code != null) return { message: error.message, extensions: { code } };
-  return { message: error.message, extensions: { code: isBadUserInput(error) ? 'BAD_USER_INPUT' : 'INTERNAL_SERVER_ERROR' } };
+/** The codes that a failed `callTool` returns. Each one names what went wrong, not the technology that found it. */
+type ErrorCode = 'ACCESS_DENIED' | 'INVALID_INPUT' | 'SERVER_ERROR';
+
+/** The message for an error whose own message the agent must not read. */
+const FIXED_MESSAGES: Record<ErrorCode, string> = {
+  ACCESS_DENIED: 'Access denied.',
+  INVALID_INPUT: 'The input of this operation is not valid.',
+  SERVER_ERROR: "The server could not run this operation. The app's owner can find the cause in the server log.",
+};
+
+/** Words that name the technology under the project. A message that contains one is replaced. */
+const TECHNOLOGY = /keystone|graphql|prisma|apollo/i;
+
+/** A failed `callTool` gives this text: `{"errors":[{"message":…,"extensions":{"code":…}}]}`. */
+function callErrorResult({ code, message }: { code: ErrorCode; message: string }): CallToolResult {
+  return errorResult(JSON.stringify({ errors: [{ message, extensions: { code } }] }));
 }
 
-/** Apollo Server's test for an error from variable coercion. */
-function isBadUserInput(error: Error): boolean {
-  const node = error instanceof GraphQLError && error.nodes?.length === 1 ? error.nodes[0] : undefined;
-  if (node?.kind !== Kind.VARIABLE_DEFINITION) return false;
-  const variable = `Variable "$${node.variable.name.value}"`;
-  return [' has invalid value', ' got invalid value ', ' of required type ', ' of non-null type '].some((rest) =>
+/** The Keystone codes by meaning (`@keystone-6/core` `src/lib/core/graphql-errors.ts` and `src/lib/createSystem.ts`). */
+const KEYSTONE_CODES: Record<string, ErrorCode | 'FIELD_ERRORS'> = {
+  KS_ACCESS_DENIED: 'ACCESS_DENIED',
+  KS_FILTER_DENIED: 'ACCESS_DENIED',
+  KS_USER_INPUT_ERROR: 'INVALID_INPUT',
+  KS_VALIDATION_FAILURE: 'INVALID_INPUT',
+  // A `take` above the list's `maxTake`.
+  KS_LIMITS_EXCEEDED: 'INVALID_INPUT',
+  // The message lists one error for each field, and `extensions.debug` holds their messages.
+  KS_EXTENSION_ERROR: 'FIELD_ERRORS',
+  KS_RESOLVER_ERROR: 'FIELD_ERRORS',
+  KS_RELATIONSHIP_ERROR: 'FIELD_ERRORS',
+  // An access function of the app returned a value that is not a boolean.
+  KS_ACCESS_RETURN_ERROR: 'SERVER_ERROR',
+  KS_PRISMA_ERROR: 'SERVER_ERROR',
+};
+
+/**
+ * Maps a rejection from `graphql.run` to a neutral code. The message is kept when it helps the agent fix the call
+ * and names no technology; `message: undefined` means that the agent gets the fixed message of the code.
+ * Access-denied and invalid-input messages are kept. Every other error, including an error that the database
+ * caused, an unknown code and an error without a code, is a `SERVER_ERROR` without its message.
+ */
+function neutralError(error: unknown): { code: ErrorCode; message: string | undefined } {
+  if (!(error instanceof GraphQLError)) return { code: 'SERVER_ERROR', message: undefined };
+  const code = neutralCode(error);
+  let message: string | undefined;
+  if (code !== 'SERVER_ERROR') {
+    const variable = badUserInputVariable(error);
+    // The agent passes arguments; `callTool` turns each argument into a variable of the same name.
+    message = variable === undefined ? error.message : error.message.replace(`Variable "$${variable}"`, `Argument "${variable}"`);
+  }
+  return { code, message: message !== undefined && TECHNOLOGY.test(message) ? undefined : message };
+}
+
+function neutralCode(error: GraphQLError): ErrorCode {
+  const code = error.extensions.code;
+  if (code === undefined) return badUserInputVariable(error) === undefined ? 'SERVER_ERROR' : 'INVALID_INPUT';
+  if (code === 'BAD_USER_INPUT') return 'INVALID_INPUT';
+  const keystone = typeof code === 'string' ? KEYSTONE_CODES[code] : undefined;
+  if (keystone !== 'FIELD_ERRORS') return keystone ?? 'SERVER_ERROR';
+  // A list of field errors is denied access or invalid input only when every field error is.
+  const debug = error.extensions.debug;
+  const messages = Array.isArray(debug) ? debug.map((entry: { message?: unknown } | null) => entry?.message) : [];
+  const all = (prefix: string) => messages.length > 0 && messages.every((m) => typeof m === 'string' && m.startsWith(prefix));
+  if (all('Access denied: ')) return 'ACCESS_DENIED';
+  if (all('Input error: ')) return 'INVALID_INPUT';
+  return 'SERVER_ERROR';
+}
+
+/** The variable name of an error from variable coercion, by Apollo Server's test in `isBadUserInputGraphQLError`. */
+function badUserInputVariable(error: GraphQLError): string | undefined {
+  const node = error.nodes?.length === 1 ? error.nodes[0] : undefined;
+  if (node?.kind !== Kind.VARIABLE_DEFINITION) return undefined;
+  const name = node.variable.name.value;
+  const variable = `Variable "$${name}"`;
+  const coercion = [' has invalid value', ' got invalid value ', ' of required type ', ' of non-null type '].some((rest) =>
     error.message.startsWith(variable + rest),
   );
+  return coercion ? name : undefined;
 }
