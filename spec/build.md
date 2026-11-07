@@ -8,7 +8,7 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 ## TRACK
 
-- 🟢 `keystone-mcp` 0.1.2 is on npm as `latest` (2026-11-07): zod 4 (advisory GHSA-mrhx-c7xc-m3w5) and at most 500 `select` paths. Public GitHub repository `w01fgang/keystone-mcp`, MIT. Constraint stays: no change to `@keystone-6/core`; the mount uses `extendExpressApp` only.
+- 🟠 `keystone-mcp` 0.2.0 is built and waits for the owner's publish: local test steps, the mount log line, the trust-proxy warning, sign-ins that survive a dev rebuild (F008), and the `secret` option (F009). 0.1.2 is on npm as `latest` (2026-11-07). Public GitHub repository `w01fgang/keystone-mcp`, MIT. Constraint stays: no change to `@keystone-6/core`; the mount uses `extendExpressApp` only.
 - 🟢 Admins use `/mcp` from Claude Desktop by signing in with their browser (F002); the owner confirmed it in Claude Desktop on 2026-11-07.
 - **Standing models (owner, 2026-11-06):** OMP at `high` for every role; Pi is not installed on this seat. Complex work uses Opus 5.5 (`--engine omp --provider anthropic --model claude-opus-5-5 --thinking high`): the coordinator, feature slices, repairs that need design, reviews, research and judges. Simple work uses Sonnet 5.5 (`--engine omp --provider anthropic --model claude-sonnet-5-5 --thinking high`): scouts, spec keepers, picture refreshes, quality passes, finish resumes and mechanical repairs. When unsure, use Opus. Pass all four flags explicitly. Do not substitute another model when the route fails.
 

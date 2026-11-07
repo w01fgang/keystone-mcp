@@ -1,6 +1,6 @@
 {
   "name": "keystone-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Mount an MCP endpoint with searchTool and callTool on a Keystone 6 app.",
   "license": "MIT",
   "author": "w01fgang",
