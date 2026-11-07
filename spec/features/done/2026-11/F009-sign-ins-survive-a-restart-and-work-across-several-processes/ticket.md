@@ -1,5 +1,6 @@
 ---
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F009 · Sign-ins survive a restart and work across several processes
