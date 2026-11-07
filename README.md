@@ -14,13 +14,13 @@ For a working app, start with the shop example in [`examples/shop`](examples/sho
 
 ## Install
 
-The package is not on npm yet. Use a `file:` dependency, installed as a copy so that the package shares the `graphql` and `express` copies of the app:
-
 ```sh
-npm install --install-links /path/to/keystone-mcp
+npm install keystone-mcp
 ```
 
-Put `install-links=true` in the `.npmrc` of the app to keep later installs as copies. After you rebuild the package, run `rm -rf node_modules/keystone-mcp && npm install` in the app to refresh the copy.
+The app must have `express` and `graphql` installed; Keystone 6 brings both.
+
+To try a local checkout instead, install it as a copy, so that the package shares the `graphql` and `express` copies of the app: `npm install --install-links /path/to/keystone-mcp`.
 
 The package ships ESM (`dist/index.js`) and CommonJS (`dist/cjs/index.js`). Keystone compiles `keystone.ts` to CommonJS and loads the CommonJS build.
 

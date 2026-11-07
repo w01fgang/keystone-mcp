@@ -3,6 +3,21 @@
   "version": "0.1.0",
   "description": "Mount an MCP endpoint with searchTool and callTool on a Keystone 6 app.",
   "license": "MIT",
+  "author": "w01fgang",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/w01fgang/keystone-mcp.git"
+  },
+  "homepage": "https://github.com/w01fgang/keystone-mcp#readme",
+  "bugs": "https://github.com/w01fgang/keystone-mcp/issues",
+  "keywords": [
+    "keystone",
+    "keystone-6",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "oauth"
+  ],
   "type": "module",
   "main": "./dist/cjs/index.js",
   "types": "./dist/index.d.ts",
@@ -22,7 +37,8 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.cjs.json && node -e \"require('fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\":\\\"commonjs\\\"}\\\\n')\"",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
