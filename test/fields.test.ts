@@ -59,7 +59,7 @@ beforeAll(async () => {
 
   const app = express();
   keystoneMcp()(app, context as unknown as McpContext);
-  server = app.listen(0);
+  server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const { accessToken } = await signIn(base, '/mcp', USER);

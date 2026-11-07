@@ -1,0 +1,43 @@
+# 1. A full run that failed before the fix (run 5 of 40 in .f010/during-watch.log; 39 passed, 1 failed). A foreign server answered 404 'not found'; no code of this package or its stack sends that body.
+ FAIL  test/auth.test.ts > sealed sign-ins > refuses a value sealed with another secret, a token of another kind, and a value changed in one character
+Error: register: 404 not found
+ ❯ register test/oauth.ts:19:38
+     17|     body: JSON.stringify({ client_name: 'Claude', redirect_uris: redir…
+     18|   });
+     19|   if (response.status !== 201) throw new Error(`register: ${response.s…
+       |                                      ^
+     20|   return ((await response.json()) as { client_id: string }).client_id;
+     21| }
+ ❯ signIn test/oauth.ts:60:20
+ ❯ test/auth.test.ts:355:53
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+# 1b. Two more failures of the same kind, from four loops run at once (48 runs). Status 401 without the
+# WWW-Authenticate header that src/auth.ts always sets, and a 501 that nothing in this stack sends:
+ FAIL  test/auth.test.ts > OAuth for /mcp, 'sealed' > answers an unauthenticated POST with 401 and a resource_metadata pointer to metadata that names S256
+TypeError: .toMatch() expects to receive a string, but got object
+ ❯ test/auth.test.ts:70:20
+     68|     expect(response.status).toBe(401);
+     69|     const header = response.headers.get('www-authenticate')!;
+ FAIL  test/fields.test.ts [ test/fields.test.ts ]
+Error: register: 501 
+ ❯ register test/oauth.ts:19:38
+(The other failures of those four loops were EEXIST and esbuild errors in test/keystone/generated, which the four runs shared in one worktree. They are not this flake.)
+
+# 2. The same 180 s, stolen-port.mjs: 300 servers on all interfaces and 300 servers on 127.0.0.1, each requested at http://127.0.0.1:<port> once a second.
+300 servers on all interfaces, 180 s
+port 53482: request failed: UND_ERR_SOCKET
+... the same line for each of the 171 misses
+51300 requests, 171 not answered by the test servers
+300 servers on 127.0.0.1, 180 s
+51300 requests, 0 not answered by the test servers
+
+# 3. The listeners on port 53482, taken with `lsof -nP -iTCP:53482 -sTCP:LISTEN` while the watcher ran: Dia's
+# agent-server on 127.0.0.1 and the watcher (node, pid 79059) on all interfaces, at the same time.
+COMMAND     PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+agent-ser 65362 wolf    5u  IPv4 0x87bd55faed16adec      0t0  TCP 127.0.0.1:53482 (LISTEN)
+node      79059 wolf  146u  IPv6 0x803e5fe46d1aa3e2      0t0  TCP *:53482 (LISTEN)
+
+# 4. port-collision.mjs: the bind that steals, and the bind that the fix makes fail.
+test server on listen(0): the other program's bind of 127.0.0.1:61927 succeeds; http://127.0.0.1:61927/ answers "not found"
+test server on listen(0, '127.0.0.1'): the other program's bind of 127.0.0.1:61929 fails with EADDRINUSE; http://127.0.0.1:61929/ answers "test server"

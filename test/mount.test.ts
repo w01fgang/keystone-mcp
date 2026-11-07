@@ -22,7 +22,8 @@ async function start(options?: KeystoneMcpOptions) {
   const app = express();
   keystoneMcp(options)(app, fake.commonContext);
   app.post('/echo', (req, res) => res.json({ body: req.body ?? null }));
-  const server = app.listen(0);
+  // 127.0.0.1, as the base URL: on all interfaces another program could bind 127.0.0.1 on this port and take requests.
+  const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   servers.push(server);
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -150,7 +151,7 @@ describe('the X-Forwarded-Proto warning', () => {
     const app = express();
     if (trustProxy) app.set('trust proxy', 1);
     freshMcp()(app, fakeContext().commonContext);
-    const server = app.listen(0);
+    const server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     servers.push(server);
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

@@ -17,7 +17,8 @@ const OTHER_SECRET = 'another test secret for sealed sign-ins, 32 characters or 
 
 async function listen(handler: RequestListener) {
   const server = createServer(handler);
-  server.listen(0);
+  // The tests request 127.0.0.1. On all interfaces another program could bind 127.0.0.1 on this port and take them.
+  server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   servers.push(server);
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
