@@ -2,6 +2,7 @@
 touches:
   - keystone-mcp.server
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F005 · Error text from /mcp names no technology
