@@ -18,7 +18,7 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 ## NEXT
 
-- Nothing planned.
+- Owner publishes 0.1.2 (zod 4 for advisory GHSA-mrhx-c7xc-m3w5, and at most 500 `select` paths; on master in `a262d2e`): `npm publish --access public`, then approve the staged version.
 
 ## PROVEN
 
