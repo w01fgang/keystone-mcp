@@ -143,7 +143,7 @@ export default withAuth(
               { label: 'Large', value: 2 },
             ],
           }),
-          shapes: multiselect({ type: 'enum', options: ['circle', 'square'] }),
+          symbols: multiselect({ type: 'enum', options: ['circle', 'square'] }),
         },
       }),
       Tag: list({ access, fields: { name: text() } }),

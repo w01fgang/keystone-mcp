@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { GraphQLError, Kind } from 'graphql';
 import { z } from 'zod';
-import { buildCall, type Call } from './call.js';
+import { buildCall, callArguments, type Call } from './call.js';
 import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, searchCatalog } from './search.js';
 import { CallError, type Catalog, type McpContext } from './types.js';
 
@@ -54,7 +54,9 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
       annotations: { readOnlyHint: true },
     },
     async ({ text, limit }) =>
-      introspection ? textResult({ operations: searchCatalog(catalog, { text, limit }) }) : errorResult(SEARCH_OFF_MESSAGE),
+      introspection
+        ? textResult(JSON.stringify({ operations: searchCatalog(catalog, { text, limit }) }))
+        : errorResult(SEARCH_OFF_MESSAGE),
   );
 
   server.registerTool(
@@ -66,7 +68,12 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
         'select lists field paths from searchTool; without select, the call returns the top-level paths.',
       inputSchema: {
         operation: z.string().describe('The operation name from searchTool, for example "posts".'),
-        args: z.record(z.string(), z.unknown()).optional().describe('Argument values by argument name.'),
+        // The client sees the input side of the pipe, so the listed schema of each value stays `{}`.
+        args: z
+          .record(z.string(), z.unknown())
+          .pipe(callArguments)
+          .optional()
+          .describe('Argument values by argument name.'),
         select: z
           .array(z.string())
           .max(MAX_SELECT_PATHS)
@@ -87,9 +94,9 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
       try {
         const data = await context.graphql.run({ query: call.document, variables: call.variables });
 
-        return textResult(data);
+        return textResult(JSON.stringify(data));
       } catch (error) {
-        const neutral = neutralError(error);
+        const neutral = neutralError(error instanceof GraphQLError ? error : undefined);
 
         if (neutral.message !== undefined) return callErrorResult({ code: neutral.code, message: neutral.message });
         // The agent reads only a fixed sentence, so the app's owner finds the cause here.
@@ -103,8 +110,8 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
   return server;
 }
 
-function textResult(value: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(value) }] };
+function textResult(text: string): CallToolResult {
+  return { content: [{ type: 'text', text }] };
 }
 
 function errorResult(message: string): CallToolResult {
@@ -129,31 +136,43 @@ function callErrorResult({ code, message }: { code: ErrorCode; message: string }
   return errorResult(JSON.stringify({ errors: [{ message, extensions: { code } }] }));
 }
 
-/** The Keystone codes by meaning (`@keystone-6/core` `src/lib/core/graphql-errors.ts` and `src/lib/createSystem.ts`). */
-const KEYSTONE_CODES: Record<string, ErrorCode | 'FIELD_ERRORS'> = {
-  KS_ACCESS_DENIED: 'ACCESS_DENIED',
-  KS_FILTER_DENIED: 'ACCESS_DENIED',
-  KS_USER_INPUT_ERROR: 'INVALID_INPUT',
-  KS_VALIDATION_FAILURE: 'INVALID_INPUT',
+/**
+ * The Keystone codes by meaning (`@keystone-6/core` `src/lib/core/graphql-errors.ts` and `src/lib/createSystem.ts`).
+ * A `Map`, because the code comes from the error: a code such as `toString` must find nothing.
+ */
+const KEYSTONE_CODES = new Map<string, ErrorCode | 'FIELD_ERRORS'>([
+  ['KS_ACCESS_DENIED', 'ACCESS_DENIED'],
+  ['KS_FILTER_DENIED', 'ACCESS_DENIED'],
+  ['KS_USER_INPUT_ERROR', 'INVALID_INPUT'],
+  ['KS_VALIDATION_FAILURE', 'INVALID_INPUT'],
   // A `take` above the list's `maxTake`.
-  KS_LIMITS_EXCEEDED: 'INVALID_INPUT',
+  ['KS_LIMITS_EXCEEDED', 'INVALID_INPUT'],
   // The message lists one error for each field, and `extensions.debug` holds their messages.
-  KS_EXTENSION_ERROR: 'FIELD_ERRORS',
-  KS_RESOLVER_ERROR: 'FIELD_ERRORS',
-  KS_RELATIONSHIP_ERROR: 'FIELD_ERRORS',
+  ['KS_EXTENSION_ERROR', 'FIELD_ERRORS'],
+  ['KS_RESOLVER_ERROR', 'FIELD_ERRORS'],
+  ['KS_RELATIONSHIP_ERROR', 'FIELD_ERRORS'],
   // An access function of the app returned a value that is not a boolean.
-  KS_ACCESS_RETURN_ERROR: 'SERVER_ERROR',
-  KS_PRISMA_ERROR: 'SERVER_ERROR',
-};
+  ['KS_ACCESS_RETURN_ERROR', 'SERVER_ERROR'],
+  ['KS_PRISMA_ERROR', 'SERVER_ERROR'],
+]);
+
+/** Keystone's `extensions.debug`: one entry for each field error. An entry without a string `message` is `null`. */
+const fieldErrors = z.array(z.object({ message: z.string() }).nullable().catch(null));
+
+/** A rejection from `graphql.run` as the agent reads it. `message: undefined` means the fixed message of the code. */
+interface NeutralError {
+  code: ErrorCode;
+  message: string | undefined;
+}
 
 /**
- * Maps a rejection from `graphql.run` to a neutral code. The message is kept when it helps the agent fix the call
- * and names no technology; `message: undefined` means that the agent gets the fixed message of the code.
- * Access-denied and invalid-input messages are kept. Every other error, including an error that the database
- * caused, an unknown code and an error without a code, is a `SERVER_ERROR` without its message.
+ * Maps a rejection from `graphql.run` to a neutral code; `undefined` stands for a rejection that is not a `GraphQLError`.
+ * The message is kept when it helps the agent fix the call and names no technology. Access-denied and invalid-input
+ * messages are kept. Every other error, including an error that the database caused, an unknown code and an error
+ * without a code, is a `SERVER_ERROR` without its message.
  */
-function neutralError(error: unknown): { code: ErrorCode; message: string | undefined } {
-  if (!(error instanceof GraphQLError)) return { code: 'SERVER_ERROR', message: undefined };
+function neutralError(error: GraphQLError | undefined): NeutralError {
+  if (error === undefined) return { code: 'SERVER_ERROR', message: undefined };
   const code = neutralCode(error);
   let message: string | undefined;
 
@@ -172,13 +191,15 @@ function neutralCode(error: GraphQLError): ErrorCode {
   if (code === undefined) return badUserInputVariable(error) === undefined ? 'SERVER_ERROR' : 'INVALID_INPUT';
 
   if (code === 'BAD_USER_INPUT') return 'INVALID_INPUT';
-  const keystone = typeof code === 'string' ? KEYSTONE_CODES[code] : undefined;
+  // A code that is not a string is unknown.
+  const name = z.string().safeParse(code);
+  const keystone = name.success ? KEYSTONE_CODES.get(name.data) : undefined;
 
   if (keystone !== 'FIELD_ERRORS') return keystone ?? 'SERVER_ERROR';
   // A list of field errors is denied access or invalid input only when every field error is.
-  const debug = error.extensions.debug;
-  const messages = Array.isArray(debug) ? debug.map((entry: { message?: unknown } | null) => entry?.message) : [];
-  const all = (prefix: string) => messages.length > 0 && messages.every((m) => typeof m === 'string' && m.startsWith(prefix));
+  const debug = fieldErrors.safeParse(error.extensions.debug);
+  const messages = debug.success ? debug.data.map((entry) => entry?.message) : [];
+  const all = (prefix: string) => messages.length > 0 && messages.every((m) => m !== undefined && m.startsWith(prefix));
 
   if (all('Access denied: ')) return 'ACCESS_DENIED';
 

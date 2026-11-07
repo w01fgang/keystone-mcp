@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { OAuthClientInformationFullSchema } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { z } from 'zod';
 import { ADMIN } from './schema.js';
 
 export const CLAUDE_REDIRECT = 'https://claude.ai/api/mcp/auth_callback';
@@ -20,7 +22,7 @@ export async function register(base: string, redirectUris = [CLAUDE_REDIRECT], p
 
   if (response.status !== 201) throw new Error(`register: ${response.status} ${await response.text()}`);
 
-  return ((await response.json()) as { client_id: string }).client_id;
+  return OAuthClientInformationFullSchema.parse(await response.json()).client_id;
 }
 
 /** Opens the authorize URL as a browser would and returns the response. */
@@ -47,6 +49,17 @@ export function submitSignIn(base: string, fields: Record<string, string>, path 
   });
 }
 
+/** The JSON body of the token endpoint: the tokens, or an OAuth error. Each form leaves the fields of the other out. */
+const tokenResponse = z.looseObject({
+  access_token: z.string().optional(),
+  refresh_token: z.string().optional(),
+  token_type: z.string().optional(),
+  expires_in: z.number().optional(),
+  scope: z.string().optional(),
+  error: z.string().optional(),
+  error_description: z.string().optional(),
+});
+
 /** Posts a form to the token endpoint and returns the status and the JSON body. */
 export async function token(base: string, fields: Record<string, string>, path = '/mcp') {
   const response = await fetch(`${base}${path}/oauth/token`, {
@@ -55,7 +68,7 @@ export async function token(base: string, fields: Record<string, string>, path =
     body: new URLSearchParams(fields),
   });
 
-  return { status: response.status, body: (await response.json()) as Record<string, string> };
+  return { status: response.status, body: tokenResponse.parse(await response.json()) };
 }
 
 /**

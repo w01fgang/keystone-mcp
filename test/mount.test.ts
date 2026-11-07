@@ -3,6 +3,8 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { OAuthProtectedResourceMetadataSchema } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { keystoneMcp } from '../src/mount.js';
@@ -28,6 +30,7 @@ async function start(options?: KeystoneMcpOptions) {
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   servers.push(server);
+  // SAFETY: the server listens on a TCP host and port, and `listening` has fired, so `address()` is an `AddressInfo`.
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   return { ...fake, base };
@@ -111,7 +114,8 @@ describe('keystoneMcp', () => {
     const { base } = await start({ introspection });
     const client = await connect(base);
     const result = await client.callTool({ name: 'searchTool', arguments: { text: 'posts' } });
-    const text = (result.content as { text: string }[])[0].text;
+    const [part] = CallToolResultSchema.parse(result).content;
+    const text = part?.type === 'text' ? part.text : '';
 
     if (on) {
       expect(result.isError).toBeFalsy();
@@ -164,11 +168,12 @@ describe('the X-Forwarded-Proto warning', () => {
     await once(server, 'listening');
     servers.push(server);
 
+    // SAFETY: the server listens on a TCP host and port, and `listening` has fired, so `address()` is an `AddressInfo`.
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
 
   const metadata = async (url: string) =>
-    ((await (await fetch(url, { headers: { 'x-forwarded-proto': 'https' } })).json()) as { resource: string }).resource;
+    OAuthProtectedResourceMetadataSchema.parse(await (await fetch(url, { headers: { 'x-forwarded-proto': 'https' } })).json()).resource;
 
   it('warns once, naming trust proxy, when a proxy forwards https and Express does not trust it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

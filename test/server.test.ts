@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResultSchema, type CompatibilityCallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GraphQLError, locatedError } from 'graphql';
 import { buildCatalog } from '../src/catalog.js';
@@ -20,7 +20,9 @@ async function connect(context: McpContext, queriesOnly = false, introspection =
   return client;
 }
 
-const text = (result: unknown) => (result as CallToolResult).content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+/** The text of a `callTool` result. The client types it as the current or the legacy result, so it is parsed. */
+const text = (result: CompatibilityCallToolResult) =>
+  CallToolResultSchema.parse(result).content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 
 describe('createMcpServer', () => {
   it('offers exactly searchTool and callTool', async () => {
@@ -92,7 +94,7 @@ describe('createMcpServer', () => {
   });
 
   /** Runs `createPost` on a context whose `graphql.run` rejects the way Keystone's `run` does: with the first GraphQL error. */
-  async function callCreatePostRejectingWith(error: unknown) {
+  async function callCreatePostRejectingWith(error: Error | string) {
     const context: McpContext = { ...fakeContext().requestContext, graphql: { schema, run: () => Promise.reject(error) } };
     const client = await connect(context);
 

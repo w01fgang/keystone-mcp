@@ -84,9 +84,9 @@ function recordKinds(catalog: Catalog): RecordKind[] {
       // `orderLines` becomes `order lines`.
       words: (many?.name ?? type).replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase(),
       read: entry.name,
-      ...(create ? { create } : {}),
-      ...(update ? { update } : {}),
-      ...(remove ? { delete: remove } : {}),
+      create,
+      update,
+      delete: remove,
     });
   }
 

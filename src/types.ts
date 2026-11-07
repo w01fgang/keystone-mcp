@@ -36,6 +36,14 @@ export interface ResolvedOptions {
   secret: string | undefined;
 }
 
+/** A value that JSON carries: tool arguments, GraphQL variables and GraphQL results. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
+
+/** A JSON object, for example the variables of one GraphQL operation or the data that it returns. */
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
 /**
  * The part of the Keystone context that this package uses.
  * A Keystone 6 `KeystoneContext` satisfies this interface.
@@ -43,7 +51,7 @@ export interface ResolvedOptions {
 export interface McpContext {
   graphql: {
     schema: GraphQLSchema;
-    run(args: { query: string; variables?: Record<string, unknown> }): Promise<unknown>;
+    run(args: { query: string; variables?: JsonObject }): Promise<JsonObject>;
   };
   /** The session of a request context. `/mcp` refuses a request whose access token has no Keystone session. */
   session?: unknown;

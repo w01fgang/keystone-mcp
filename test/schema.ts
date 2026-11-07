@@ -1,6 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import { buildSchema, graphql } from 'graphql';
-import type { McpContext } from '../src/types.js';
+import { z } from 'zod';
+import type { JsonObject, McpContext } from '../src/types.js';
 
 /**
  * A GraphQL schema in the shape that Keystone 6 generates for two lists, `Post` and `User`, with `@keystone-6/auth`
@@ -181,8 +182,11 @@ const rootValue = {
 
 export interface RunRecord {
   query: string;
-  variables?: Record<string, unknown>;
+  variables?: JsonObject;
 }
+
+/** The data of an execution. graphql-js serializes every leaf, so the data is JSON. */
+const executionData = z.record(z.string(), z.json());
 
 /** The fixture's one user and the password that signs it in. */
 export const ADMIN = { email: 'admin@example.com', password: 'correct horse battery staple' };
@@ -218,7 +222,7 @@ export function fakeContext() {
 
     if (result.errors?.length) throw result.errors[0];
 
-    return result.data;
+    return executionData.parse(result.data);
   };
 
   const requestContext: McpContext = {

@@ -10,7 +10,6 @@ import {
   type GraphQLArgument,
   type GraphQLField,
   type GraphQLInputField,
-  type GraphQLInputType,
   type GraphQLNamedType,
   type GraphQLObjectType,
   type GraphQLSchema,
@@ -66,7 +65,8 @@ function buildEntry(kind: OperationKind, field: GraphQLField<unknown, unknown>):
   return {
     name: field.name,
     kind,
-    ...(field.description ? { description: field.description } : {}),
+    // `JSON.stringify` skips an `undefined` description, so a search result lists it only when the field has one.
+    description: field.description || undefined,
     returnType: String(field.type),
     args: field.args.map((arg) => summarizeInput(arg, 1)),
     paths: selectablePaths(returnType),
@@ -78,9 +78,12 @@ function summarizeInput(input: GraphQLArgument | GraphQLInputField, depth: numbe
   const summary: InputSummary = { name: input.name, type: String(input.type) };
 
   if (input.description) summary.description = input.description;
-  const defaultValue = printDefault(input.defaultValue, input.type);
 
-  if (defaultValue !== undefined) summary.defaultValue = defaultValue;
+  if (input.defaultValue !== undefined) {
+    const ast = astFromValue(input.defaultValue, input.type);
+
+    if (ast) summary.defaultValue = print(ast);
+  }
 
   if (depth <= INPUT_DEPTH) {
     const fields = summarizeInputFields(getNamedType(input.type), depth);
@@ -104,13 +107,6 @@ function isManyRelationFilter(type: GraphQLNamedType): boolean {
   const fields = type.getFields();
 
   return MANY_RELATION_FIELDS.some((name) => name in fields);
-}
-
-function printDefault(value: unknown, type: GraphQLInputType): string | undefined {
-  if (value === undefined) return undefined;
-  const ast = astFromValue(value, type);
-
-  return ast ? print(ast) : undefined;
 }
 
 /**

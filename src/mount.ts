@@ -1,10 +1,14 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
+import { z } from 'zod';
 import { mountOAuth } from './auth.js';
 import { buildCatalog } from './catalog.js';
 import { buildInstructions } from './instructions.js';
 import { createMcpServer } from './server.js';
 import type { KeystoneMcpOptions, McpContext, ResolvedOptions } from './types.js';
+
+/** The `secret` option. An app in JavaScript can pass any value, so `resolveOptions` parses it. */
+const secretOption = z.string().min(32).optional();
 
 function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
   const resolved = {
@@ -23,7 +27,7 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
     throw new TypeError(`keystoneMcp: takeLimit must be a positive integer, got ${resolved.takeLimit}.`);
   }
 
-  if (resolved.secret !== undefined && (typeof resolved.secret !== 'string' || resolved.secret.length < 32)) {
+  if (!secretOption.safeParse(resolved.secret).success) {
     throw new TypeError('keystoneMcp: secret must be a string of 32 characters or more.');
   }
 

@@ -23,6 +23,8 @@ export function storefront(app: Express, commonContext: KeystoneContext): void {
   app.get('/', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const context = await commonContext.withRequest(req, res);
+      // SAFETY: Keystone checks `productFields` against the GraphQL schema and returns those fields; schema.ts stores each one
+      // with the type that `Product` gives it.
       const products = (await context.query.Product.findMany({ orderBy: { name: 'asc' }, query: productFields })) as Product[];
 
       const items = products.map(
@@ -41,6 +43,7 @@ export function storefront(app: Express, commonContext: KeystoneContext): void {
   app.get('/products/:slug', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const context = await commonContext.withRequest(req, res);
+      // SAFETY: as on `/`: the fields are `productFields`, and schema.ts stores each one with the type that `Product` gives it.
       const product = (await context.query.Product.findOne({ where: { slug: req.params.slug }, query: productFields })) as Product | null;
 
       if (!product) {

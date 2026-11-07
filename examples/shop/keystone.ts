@@ -42,6 +42,7 @@ export default withAuth(
       // The storefront owns `/`, so the Admin UI moves to `/admin`.
       basePath: '/admin',
       // Customers use the storefront and MCP. Only an admin opens the Admin UI.
+      // SAFETY: createAuth above writes `sessionData: 'name isAdmin'` of a User into the session, which is the shape of `Session`.
       isAccessAllowed: ({ session }) => Boolean((session as Session | undefined)?.data.isAdmin),
     },
     server: {

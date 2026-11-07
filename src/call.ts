@@ -1,10 +1,11 @@
-import { CallError, type Catalog, type CatalogEntry } from './types.js';
+import { z } from 'zod';
+import { CallError, type Catalog, type CatalogEntry, type JsonObject, type JsonValue } from './types.js';
 
 export interface CallInput {
   /** The name of a catalog entry, for example `posts`. */
   operation: string;
-  /** Argument values by argument name. They become GraphQL variables. */
-  args?: Record<string, unknown>;
+  /** Argument values by argument name. They become GraphQL variables. An `undefined` value is an absent argument. */
+  args?: { [name: string]: JsonValue | undefined };
   /** Field paths from the catalog entry. Default: the top-level paths of the entry. */
   select?: string[];
 }
@@ -12,8 +13,19 @@ export interface CallInput {
 export interface Call {
   entry: CatalogEntry;
   document: string;
-  variables: Record<string, unknown>;
+  variables: JsonObject;
 }
+
+/** A JSON number. `JSON.parse` reads a number beyond the range of a double, for example `1e400`, as `Infinity`. */
+const jsonNumber = z.union([z.number(), z.literal([Infinity, -Infinity])]);
+
+/** A JSON value, as `JSON.parse` returns it. */
+const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([z.string(), jsonNumber, z.boolean(), z.null(), z.array(jsonValue), z.record(z.string(), jsonValue)]),
+);
+
+/** Parses the `args` of `callTool` into `CallInput.args`. */
+export const callArguments = z.record(z.string(), jsonValue.optional());
 
 /** The name of the `take` argument that Keystone list queries accept. */
 const TAKE_ARG = 'take';
@@ -49,7 +61,7 @@ export function buildCall(catalog: Catalog, input: CallInput, takeLimit: number)
   return { entry, document, variables };
 }
 
-function buildVariables(entry: CatalogEntry, args: Record<string, unknown>, takeLimit: number) {
+function buildVariables(entry: CatalogEntry, args: NonNullable<CallInput['args']>, takeLimit: number): JsonObject {
   const known = new Set(entry.args.map((arg) => arg.name));
   const unknown = Object.keys(args).filter((name) => !known.has(name));
 
@@ -60,16 +72,22 @@ function buildVariables(entry: CatalogEntry, args: Record<string, unknown>, take
     );
   }
 
-  const variables = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined));
+  const variables = Object.fromEntries(
+    Object.entries(args).filter((argument): argument is [string, JsonValue] => argument[1] !== undefined),
+  );
 
   if (known.has(TAKE_ARG)) {
     const take = variables[TAKE_ARG];
 
     if (take === null || take === undefined) {
       variables[TAKE_ARG] = takeLimit;
-    } else if (typeof take === 'number' && Math.abs(take) > takeLimit) {
-      // A negative take reads rows from the end. Keystone limits it by its absolute value too.
-      variables[TAKE_ARG] = Math.sign(take) * takeLimit;
+    } else {
+      const count = jsonNumber.safeParse(take);
+
+      if (count.success && Math.abs(count.data) > takeLimit) {
+        // A negative take reads rows from the end. Keystone limits it by its absolute value too.
+        variables[TAKE_ARG] = Math.sign(count.data) * takeLimit;
+      }
     }
   }
 
@@ -115,7 +133,8 @@ function buildSelection(entry: CatalogEntry, select: string[] | undefined): stri
   const fields = new Map<string, Set<string>>();
 
   for (const path of paths) {
-    const [field, child] = path.split('.') as [string, string | undefined];
+    // `split` returns one element for `field` and two for `field.child`, so `child` may be absent.
+    const [field, child] = path.split('.');
     const children = fields.get(field) ?? new Set<string>();
 
     if (child) children.add(child);

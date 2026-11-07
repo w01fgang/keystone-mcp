@@ -23,6 +23,7 @@ async function listen(handler: RequestListener) {
   await once(server, 'listening');
   servers.push(server);
 
+  // SAFETY: the server listens on a TCP host and port, and `listening` has fired, so `address()` is an `AddressInfo`.
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
@@ -34,16 +35,17 @@ async function startServer(secret?: string) {
   return { ...fake, base: await listen(app) };
 }
 
-const listTools = (base: string, accessToken?: string) =>
-  fetch(`${base}/mcp`, {
+function listTools(base: string, accessToken?: string) {
+  const headers = new Headers({ 'content-type': 'application/json', accept: 'application/json, text/event-stream' });
+
+  if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
+
+  return fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json, text/event-stream',
-      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-    },
+    headers,
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
   });
+}
 
 /** Registers a client and opens its sign-in page. */
 async function openSignIn(base: string, redirectUri = CLAUDE_REDIRECT) {
@@ -378,7 +380,7 @@ describe('sealed sign-ins', () => {
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
     const last = value.length - 1;
 
-    return [changed(0, other(0)), changed(last >> 1, other(last >> 1)), ...[...alphabet].filter((c) => c !== value[last]).map((c) => changed(last, c))];
+    return [changed(0, other(0)), changed(last >> 1, other(last >> 1)), ...[...alphabet].flatMap((c) => (c === value[last] ? [] : [changed(last, c)]))];
   }
 
   it('refuses a value sealed with another secret, a token of another kind, and a value changed in one character', async () => {

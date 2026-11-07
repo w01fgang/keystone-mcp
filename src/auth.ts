@@ -14,15 +14,17 @@ import { revocationHandler } from '@modelcontextprotocol/sdk/server/auth/handler
 import { tokenHandler } from '@modelcontextprotocol/sdk/server/auth/handlers/token.js';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import type {
-  OAuthClientInformationFull,
-  OAuthMetadata,
-  OAuthProtectedResourceMetadata,
-  OAuthTokenRevocationRequest,
-  OAuthTokens,
+import {
+  OAuthClientInformationFullSchema,
+  type OAuthClientInformationFull,
+  type OAuthMetadata,
+  type OAuthProtectedResourceMetadata,
+  type OAuthTokenRevocationRequest,
+  type OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import express, { type Express, type Request, type Response } from 'express';
 import { type GraphQLSchema, getNamedType, isNonNullType, isObjectType, isUnionType } from 'graphql';
+import { z } from 'zod';
 import type { McpContext } from './types.js';
 
 const ACCESS_TOKEN_SECONDS = 60 * 60;
@@ -106,14 +108,34 @@ export interface McpOAuth {
 
 /** The value behind each kind of key. A client is kept without its `client_id`, because the `client_id` is the key. */
 interface Values {
-  client: Omit<OAuthClientInformationFull, 'client_id'>;
+  client: ClientRecord;
   signIn: PendingSignIn;
   code: CodeRecord;
   access: TokenRecord;
   refresh: TokenRecord;
 }
 
+/** A registered client without its `client_id`. A registration does not expire, so it has no `expiresAt`. */
+type ClientRecord = Omit<OAuthClientInformationFull, 'client_id'> & { expiresAt?: never };
+
+/** Parses the client that the SDK registers into a `ClientRecord`: it drops the `client_id`. */
+const clientRecord = OAuthClientInformationFullSchema.omit({ client_id: true });
+
 type Kind = keyof Values;
+
+/** The authorization request as the client sent it. The SDK has checked that `redirect_uri`, when present, is a URL. */
+const authorizationRequest = z.object({ redirect_uri: z.string().optional() });
+
+/** A text field of the sign-in form. `express.urlencoded` gives an array for a repeated field; it reads comma-joined. */
+const formText = z.union([z.string(), z.array(z.string())]).transform(String).catch('');
+
+/** The sign-in form. A missing or malformed field reads as `''`, which matches no transaction, decision or user. */
+const signInForm = z
+  .object({ transaction: z.string().catch(''), decision: z.string().catch(''), identity: formText, secret: formText })
+  .catch({ transaction: '', decision: '', identity: '', secret: '' });
+
+/** The data of the password mutation. `sessionToken` is absent when it returns its failure type. */
+const signInResult = z.object({ result: z.object({ sessionToken: z.string().min(1) }) });
 
 /** The OAuth state of one MCP path. A key is what the client holds: a `client_id`, a sign-in transaction, a code or a token. */
 interface Vault {
@@ -127,27 +149,28 @@ interface Vault {
 /** Registration and the authorize step need no sign-in, so these stores also drop their oldest entries above `MAX_ENTRIES`. */
 const CAPPED: Record<Kind, boolean> = { client: true, signIn: true, code: false, access: false, refresh: false };
 
+/** One map for each kind of key, from the key to its value. */
+type MemoryStores = { [K in Kind]: Map<string, Values[K]> };
+
 /** Keeps the values in the memory of the process. A key is a random token. */
 function memoryVault(): Vault {
-  const stores = new Map<Kind, Map<string, unknown>>();
-
-  const storeOf = (kind: Kind) => {
-    let store = stores.get(kind);
-
-    if (!store) stores.set(kind, (store = new Map()));
-
-    return store;
+  const stores: MemoryStores = {
+    client: new Map(),
+    signIn: new Map(),
+    code: new Map(),
+    access: new Map(),
+    refresh: new Map(),
   };
 
   return {
     put(kind, value) {
       const key = newToken();
-      remember(storeOf(kind), key, value, CAPPED[kind]);
+      remember(stores[kind], key, value, CAPPED[kind]);
 
       return key;
     },
-    get: <K extends Kind>(kind: K, key: string) => live(storeOf(kind) as Map<string, Values[K]>, key),
-    drop: (kind, key) => void storeOf(kind).delete(key),
+    get: (kind, key) => live(stores[kind], key),
+    drop: (kind, key) => void stores[kind].delete(key),
   };
 }
 
@@ -259,8 +282,8 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
         }
       }
 
-      // The SDK sets a random client_id. The vault key replaces it.
-      const { client_id: _, ...metadata } = client as OAuthClientInformationFull;
+      // The SDK sets a random client_id, and its type leaves it out. The vault key replaces it.
+      const metadata = clientRecord.parse(client);
 
       return { client_id: vault.put('client', metadata), ...metadata };
     },
@@ -270,20 +293,23 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
   function issueTokens({ clientId, sessionToken, resource, scopes }: Grant): OAuthTokens {
     const grant: Grant = { clientId, sessionToken, resource, scopes };
 
-    return {
+    const tokens: OAuthTokens = {
       access_token: vault.put('access', { ...grant, expiresAt: now() + ACCESS_TOKEN_SECONDS }),
       token_type: 'Bearer',
       expires_in: ACCESS_TOKEN_SECONDS,
       refresh_token: vault.put('refresh', { ...grant, expiresAt: now() + REFRESH_TOKEN_SECONDS }),
-      ...(scopes.length ? { scope: scopes.join(' ') } : {}),
     };
+
+    if (scopes.length) tokens.scope = scopes.join(' ');
+
+    return tokens;
   }
 
   const provider: OAuthServerProvider = {
     clientsStore,
 
     async authorize(client, params, res) {
-      const req = res.req as Request;
+      const req = res.req;
       const { resource: requested, ...request } = params;
       const resource = resourceUrl(req, path);
 
@@ -292,13 +318,13 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       }
 
       // The SDK reads the authorization parameters from the body of a POST and from the query of a GET.
-      const sent = (req.method === 'POST' ? req.body : req.query) as Record<string, unknown> | undefined;
+      const sent = authorizationRequest.safeParse(req.method === 'POST' ? req.body : req.query);
 
       const id = vault.put('signIn', {
         clientId: client.client_id,
         params: request,
         resource: requested ? requested.href : resource,
-        redirectUriSent: sent?.redirect_uri !== undefined,
+        redirectUriSent: sent.success && sent.data.redirect_uri !== undefined,
         expiresAt: now() + SIGN_IN_SECONDS,
       });
 
@@ -336,7 +362,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
 
       if (resource && !sameResource(resource.href, record.resource)) throw new InvalidTargetError('resource does not match.');
 
-      if (!(await sessionOf(commonContext, record.sessionToken))) {
+      if (!(await hasSession(commonContext, record.sessionToken))) {
         throw new InvalidGrantError('Your session has ended. Sign in again.');
       }
 
@@ -401,8 +427,8 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
 
   app.post(paths.signIn, express.urlencoded({ extended: false }), async (req: Request, res: Response) => {
     res.set('Cache-Control', 'no-store');
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const id = typeof body.transaction === 'string' ? body.transaction : '';
+    const body = signInForm.parse(req.body ?? {});
+    const id = body.transaction;
     const pending = vault.get('signIn', id);
     const attempts = live(signInAttempts, id)?.count ?? 0;
     const client = pending && attempts < SIGN_IN_ATTEMPTS ? clientOf(pending.clientId) : undefined;
@@ -434,7 +460,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     let sessionToken: string | undefined;
 
     try {
-      sessionToken = await signIn(req, commonContext, mutation, String(body.identity ?? ''), String(body.secret ?? ''));
+      sessionToken = await signIn(req, commonContext, mutation, body.identity, body.secret);
     } catch (error) {
       console.error('keystone-mcp: the sign-in request failed.', error);
       res.status(500).type('text/plain').send('The sign-in failed because of a server error. Try again later.');
@@ -518,18 +544,17 @@ async function signIn(
     `result: ${mutation.name}(${mutation.identityArg}: $identity, ${mutation.secretArg}: $secret) { ` +
     `... on ${mutation.successType} { sessionToken } } }`;
 
-  const data = (await context.graphql.run({ query, variables: { identity, secret } })) as { result?: { sessionToken?: unknown } };
-  const token = data.result?.sessionToken;
+  const data = signInResult.safeParse(await context.graphql.run({ query, variables: { identity, secret } }));
 
-  return typeof token === 'string' && token ? token : undefined;
+  return data.success ? data.data.result.sessionToken : undefined;
 }
 
-/** The session of a Keystone session token, or `undefined` when it has expired or its user is gone. */
-async function sessionOf(commonContext: McpContext, sessionToken: string): Promise<unknown> {
+/** `true` when a Keystone session token still has a session: it has not expired, and its user exists. */
+async function hasSession(commonContext: McpContext, sessionToken: string): Promise<boolean> {
   const req = new IncomingMessage(new Socket());
   req.headers.authorization = `Bearer ${sessionToken}`;
 
-  return (await commonContext.withRequest(req)).session;
+  return Boolean((await commonContext.withRequest(req)).session);
 }
 
 function sendUnauthorized(res: Response, metadataUrl: string, description: string): void {
@@ -625,12 +650,12 @@ function now(): number {
 }
 
 /** `true` for a value without `expiresAt`, or one whose `expiresAt` is in the future. */
-function unexpired(value: unknown): boolean {
-  return ((value as Partial<Expiring>).expiresAt ?? Infinity) > now();
+function unexpired(value: Partial<Expiring>): boolean {
+  return (value.expiresAt ?? Infinity) > now();
 }
 
 /** Returns an unexpired entry and drops an expired one. */
-function live<T>(store: Map<string, T>, key: string): T | undefined {
+function live<T extends Partial<Expiring>>(store: Map<string, T>, key: string): T | undefined {
   const value = store.get(key);
 
   if (value === undefined || unexpired(value)) return value;
@@ -640,7 +665,7 @@ function live<T>(store: Map<string, T>, key: string): T | undefined {
 }
 
 /** Adds an entry. Above `MAX_ENTRIES` it drops expired entries and, when `capped`, the oldest entries. */
-function remember<T>(store: Map<string, T>, key: string, value: T, capped = false): void {
+function remember<T extends Partial<Expiring>>(store: Map<string, T>, key: string, value: T, capped = false): void {
   store.set(key, value);
 
   if (store.size <= MAX_ENTRIES) return;

@@ -13,13 +13,14 @@ import type { KeystoneContext } from '@keystone-6/core/types';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { buildCatalog } from '../src/catalog.js';
 import { keystoneMcp } from '../src/mount.js';
 import { createMcpServer } from '../src/server.js';
-import type { CatalogEntry, McpContext } from '../src/types.js';
+import type { CatalogEntry, InputSummary, JsonObject, JsonValue } from '../src/types.js';
 import { signIn } from './oauth.js';
 
 /**
@@ -54,15 +55,17 @@ beforeAll(async () => {
   await run(process.execPath, [require.resolve('@keystone-6/core/bin/cli.js'), 'build', '--no-ui', '--quiet'], { cwd: appDir, env });
   await run(process.execPath, [require.resolve('prisma/build/index.js'), 'db', 'push', '--schema', 'schema.prisma'], { cwd: appDir, env });
   // The same two modules that `keystone start` loads.
+  // SAFETY: `keystone build` above succeeded, so `.keystone/config.js` is keystone.ts compiled, and its default export is `config()`.
   const config = require('./.keystone/config.js').default as Parameters<typeof getContext>[0];
   const prismaModule: unknown = require('./.keystone/prisma.js');
   context = getContext(config, prismaModule);
-  userId = (await context.sudo().db.User.createOne({ data: { name: 'Ada', ...USER } })).id as string;
+  userId = String((await context.sudo().db.User.createOne({ data: { name: 'Ada', ...USER } })).id);
 
   const app = express();
-  keystoneMcp()(app, context as unknown as McpContext);
+  keystoneMcp()(app, context);
   server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
+  // SAFETY: the server listens on a TCP host and port, and `listening` has fired, so `address()` is an `AddressInfo`.
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const { accessToken } = await signIn(base, '/mcp', USER);
   client = new Client({ name: 'test', version: '1.0.0' });
@@ -80,19 +83,45 @@ afterAll(async () => {
 });
 
 /** Runs one tool and checks that its text names no technology. */
-async function runTool(agent: Client, name: string, args: Record<string, unknown>) {
-  const result = (await agent.callTool({ name, arguments: args })) as CallToolResult;
+async function runTool(agent: Client, name: string, args: JsonObject) {
+  const result = CallToolResultSchema.parse(await agent.callTool({ name, arguments: args }));
   const text = result.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
   expect(text).not.toMatch(TECHNOLOGY);
 
   return { isError: Boolean(result.isError), text };
 }
 
+/** An argument or input field as searchTool lists it. */
+const inputSummary: z.ZodType<InputSummary> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    type: z.string(),
+    description: z.string().optional(),
+    defaultValue: z.string().optional(),
+    fields: z.array(inputSummary).optional(),
+  }),
+);
+
+/** The text of a searchTool result. */
+const searchResult = z.object({
+  operations: z.array(
+    z.object({
+      name: z.string(),
+      kind: z.enum(['query', 'mutation']),
+      description: z.string().optional(),
+      returnType: z.string(),
+      args: z.array(inputSummary),
+      paths: z.array(z.string()),
+      leaf: z.boolean(),
+    }),
+  ),
+});
+
 async function search(text: string): Promise<CatalogEntry[]> {
   const result = await runTool(client, 'searchTool', { text, limit: 25 });
   expect(result.isError).toBe(false);
 
-  return (JSON.parse(result.text) as { operations: CatalogEntry[] }).operations;
+  return searchResult.parse(JSON.parse(result.text)).operations;
 }
 
 /** Finds an operation through searchTool, as an agent does. */
@@ -104,28 +133,46 @@ async function find(operation: string): Promise<CatalogEntry> {
   return entry;
 }
 
-type Row = Record<string, unknown>;
+type Row = JsonObject;
 
-async function call(operation: string, args: Row, select?: string[]): Promise<Row | null> {
-  const result = await runTool(client, 'callTool', { operation, args, ...(select ? { select } : {}) });
+/** The text of a successful callTool result: the data of each operation by name. */
+const callResult = z.record(z.string(), z.json());
+
+/** The data of an operation that returns one item, or `null` when it finds none. */
+const oneItem = z.record(z.string(), z.json()).nullable();
+
+/** The data of a list query that selects `id`. */
+const itemIds = z.array(z.object({ id: z.string() }));
+
+/** The text of a failed callTool result. */
+const callFailure = z.object({
+  errors: z.array(z.looseObject({ message: z.string(), extensions: z.looseObject({ code: z.string() }) })),
+});
+
+/** Runs callTool and returns the data of the operation. */
+async function callData(operation: string, args: Row, select?: string[]): Promise<JsonValue> {
+  const result = await runTool(client, 'callTool', select ? { operation, args, select } : { operation, args });
 
   if (result.isError) throw new Error(`callTool ${operation} failed: ${result.text}`);
 
-  return (JSON.parse(result.text) as Record<string, Row | null>)[operation] ?? null;
+  return callResult.parse(JSON.parse(result.text))[operation] ?? null;
+}
+
+/** Runs callTool for an operation that returns one item. */
+async function call(operation: string, args: Row, select?: string[]): Promise<Row | null> {
+  return oneItem.parse(await callData(operation, args, select));
 }
 
 async function callError(operation: string, args: Row, select = ['id']) {
   const result = await runTool(client, 'callTool', { operation, args, select });
   expect(result.isError).toBe(true);
 
-  return (JSON.parse(result.text) as { errors: [{ message: string; extensions: { code: string } }] }).errors[0];
+  return callFailure.parse(JSON.parse(result.text)).errors[0];
 }
 
 /** The ids of the items of a list query that match a filter. */
-async function idsOf(operation: string, where: Row): Promise<unknown[]> {
-  const items = (await call(operation, { where }, ['id'])) as unknown as Row[];
-
-  return items.map((item) => item.id);
+async function idsOf(operation: string, where: Row): Promise<string[]> {
+  return itemIds.parse(await callData(operation, { where }, ['id'])).map((item) => item.id);
 }
 
 /** The names of the input fields of an argument in a catalog entry, for example the fields of `data`. */
@@ -167,7 +214,7 @@ async function roundTrip({ list, select, create, stored, created, filter, update
     expect(inputFields(await find(`create${list}`), 'data')).toEqual(expect.arrayContaining(Object.keys(create)));
     const item = await call(`create${list}`, { data: create }, ['id', ...select]);
     expect(item).toMatchObject(created);
-    id = item!.id as string;
+    id = z.string().parse(item?.id);
   } else {
     id = (await stored!()).id;
   }
@@ -340,11 +387,11 @@ describe('every Keystone field type through searchTool and callTool', () => {
   it('stores multiselect fields of string, integer and enum type, and offers no filter on them', async () => {
     await roundTrip({
       list: 'MultiselectItem',
-      select: ['colors', 'sizes', 'shapes'],
-      create: { colors: ['red', 'blue'], sizes: [2], shapes: ['circle'] },
-      created: { colors: ['red', 'blue'], sizes: [2], shapes: ['circle'] },
-      update: { colors: [], sizes: [1, 2], shapes: ['square', 'circle'] },
-      updated: { colors: [], sizes: [1, 2], shapes: ['square', 'circle'] },
+      select: ['colors', 'sizes', 'symbols'],
+      create: { colors: ['red', 'blue'], sizes: [2], symbols: ['circle'] },
+      created: { colors: ['red', 'blue'], sizes: [2], symbols: ['circle'] },
+      update: { colors: [], sizes: [1, 2], symbols: ['square', 'circle'] },
+      updated: { colors: [], sizes: [1, 2], symbols: ['square', 'circle'] },
     });
     expect(inputFields(await find('multiselectItems'), 'where')).toEqual(['id']);
   });
@@ -519,7 +566,7 @@ describe('every Keystone field type through searchTool and callTool', () => {
 
   it('keeps the access of the session: an anonymous callTool cannot write', async () => {
     const catalog = buildCatalog(context.graphql.schema);
-    const server = createMcpServer({ catalog, context: context as unknown as McpContext, takeLimit: 50, introspection: true, instructions: '' });
+    const server = createMcpServer({ catalog, context, takeLimit: 50, introspection: true, instructions: '' });
     const anonymous = new Client({ name: 'test', version: '1.0.0' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverTransport), anonymous.connect(clientTransport)]);
