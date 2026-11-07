@@ -6,7 +6,7 @@ import { buildCall, type Call } from './call.js';
 import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, searchCatalog } from './search.js';
 import { CallError, type Catalog, type McpContext } from './types.js';
 
-export const SERVER_INFO = { name: 'keystone-mcp', version: '0.1.0' };
+export const SERVER_INFO = { name: 'keystone-mcp', version: '0.1.1' };
 
 /**
  * The text that the agent reads: tool descriptions, argument descriptions and the search-off message. Like the
