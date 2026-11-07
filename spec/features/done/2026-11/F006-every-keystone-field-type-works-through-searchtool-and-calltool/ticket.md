@@ -1,5 +1,6 @@
 ---
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F006 · Every Keystone field type works through searchTool and callTool
