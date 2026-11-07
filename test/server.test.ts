@@ -4,12 +4,15 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, it } from 'vitest';
 import { GraphQLError, locatedError } from 'graphql';
 import { buildCatalog } from '../src/catalog.js';
+import { buildInstructions } from '../src/instructions.js';
 import { createMcpServer } from '../src/server.js';
 import type { McpContext } from '../src/types.js';
 import { fakeContext, schema } from './schema.js';
 
-async function connect(context: McpContext, queriesOnly = false) {
-  const server = createMcpServer({ catalog: buildCatalog(schema, { queriesOnly }), context, takeLimit: 50, introspection: true });
+async function connect(context: McpContext, queriesOnly = false, introspection = true) {
+  const catalog = buildCatalog(schema, { queriesOnly });
+  const instructions = buildInstructions(catalog, { introspection });
+  const server = createMcpServer({ catalog, context, takeLimit: 50, introspection, instructions });
   const client = new Client({ name: 'test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -23,6 +26,15 @@ describe('createMcpServer', () => {
     const client = await connect(fakeContext().requestContext);
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name)).toEqual(['searchTool', 'callTool']);
+  });
+
+  it.each([true, false])('names no technology in the text the agent reads, with introspection %s', async (introspection) => {
+    const client = await connect(fakeContext().requestContext, false, introspection);
+    const { tools } = await client.listTools();
+    const search = await client.callTool({ name: 'searchTool', arguments: { text: 'post' } });
+    // The search result itself is catalog data; only the off message is text of this package.
+    const texts = [client.getInstructions(), JSON.stringify(tools), introspection ? '' : text(search)];
+    for (const agentText of texts) expect(agentText).not.toMatch(/keystone|graphql|prisma/i);
   });
 
   it('searchTool returns the posts operation with its signatures and paths', async () => {

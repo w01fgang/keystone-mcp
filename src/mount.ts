@@ -2,6 +2,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import express, { type Express, type Request, type Response } from 'express';
 import { mountOAuth } from './auth.js';
 import { buildCatalog } from './catalog.js';
+import { buildInstructions } from './instructions.js';
 import { createMcpServer } from './server.js';
 import type { KeystoneMcpOptions, McpContext, ResolvedOptions } from './types.js';
 
@@ -12,6 +13,7 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
     takeLimit: options.takeLimit ?? 50,
     // Apollo Server's default. Keystone passes extendExpressApp no config, so the app's apolloConfig is out of reach.
     introspection: options.introspection ?? process.env.NODE_ENV !== 'production',
+    instructions: options.instructions?.trim() || undefined,
   };
   if (!resolved.path.startsWith('/')) throw new TypeError(`keystoneMcp: path must start with "/", got "${resolved.path}".`);
   if (!Number.isInteger(resolved.takeLimit) || resolved.takeLimit < 1) {
@@ -26,18 +28,19 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
  * access token and creates a stateless MCP server that runs as the Keystone session behind that token.
  */
 export function keystoneMcp(options: KeystoneMcpOptions = {}) {
-  const { path, queriesOnly, takeLimit, introspection } = resolveOptions(options);
+  const { path, queriesOnly, takeLimit, introspection, instructions: about } = resolveOptions(options);
 
   return function extendExpressApp(app: Express, commonContext: McpContext): void {
     // Keystone calls extendExpressApp again after each dev rebuild, with the new schema.
     const catalog = buildCatalog(commonContext.graphql.schema, { queriesOnly });
+    const instructions = buildInstructions(catalog, { about, introspection });
     const oauth = mountOAuth(app, commonContext, path);
 
     app.post(path, express.json(), async (req: Request, res: Response) => {
       try {
         const context = await oauth.authenticate(req, res);
         if (!context) return;
-        const server = createMcpServer({ catalog, context, takeLimit, introspection });
+        const server = createMcpServer({ catalog, context, takeLimit, introspection, instructions });
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         res.on('close', () => {
           void transport.close();

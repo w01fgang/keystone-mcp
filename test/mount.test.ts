@@ -6,7 +6,6 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import express from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { keystoneMcp } from '../src/mount.js';
-import { INSTRUCTIONS } from '../src/server.js';
 import type { KeystoneMcpOptions } from '../src/types.js';
 import { signIn } from './oauth.js';
 import { fakeContext } from './schema.js';
@@ -37,10 +36,10 @@ async function connect(base: string, path = '/mcp') {
 }
 
 describe('keystoneMcp', () => {
-  it('answers POST /mcp with searchTool and callTool, and initialize carries the instructions', async () => {
-    const { base } = await start();
+  it('answers POST /mcp with searchTool and callTool, and initialize starts with the author paragraph', async () => {
+    const { base } = await start({ instructions: '  A blog about cats.\n' });
     const client = await connect(base);
-    expect(client.getInstructions()).toBe(INSTRUCTIONS);
+    expect(client.getInstructions()).toMatch(/^A blog about cats\.\n\nThis project holds these kinds of records: posts, users\./);
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name)).toEqual(['searchTool', 'callTool']);
     await client.close();
@@ -103,18 +102,19 @@ describe('keystoneMcp', () => {
       expect(JSON.parse(text).operations[0].name).toBe('posts');
     } else {
       expect(result.isError).toBe(true);
-      expect(text).toContain('keystoneMcp({ introspection: true })');
+      expect(text).toContain("Ask the app's owner to turn search on.");
     }
     await client.close();
   });
 
-  it('runs callTool while searchTool is off', async () => {
+  it('runs callTool and sends the generated instructions while searchTool is off', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     const { base, runs } = await start();
     const client = await connect(base);
     const result = await client.callTool({ name: 'callTool', arguments: { operation: 'posts', args: { take: 2 }, select: ['id'] } });
     expect(result.isError).toBeFalsy();
     expect(runs.at(-1)?.variables).toEqual({ take: 2 });
+    expect(client.getInstructions()).toContain('- posts: read post, create createPost, update updatePost, delete deletePost.');
     await client.close();
   });
 });

@@ -14,6 +14,11 @@ export interface KeystoneMcpOptions {
    * Default: `true`, except when `NODE_ENV` is `production`, as Apollo Server's `introspection` default.
    */
   introspection?: boolean;
+  /**
+   * One paragraph about the project, in the author's words. The server instructions start with it, before the part
+   * that the package builds from the catalog. Default: none.
+   */
+  instructions?: string;
 }
 
 export interface ResolvedOptions {
@@ -21,6 +26,7 @@ export interface ResolvedOptions {
   queriesOnly: boolean;
   takeLimit: number;
   introspection: boolean;
+  instructions: string | undefined;
 }
 
 /**

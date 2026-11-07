@@ -4,7 +4,7 @@ A small Keystone 6 online shop that uses `keystone-mcp`. It has a storefront, an
 
 | File | What it shows |
 | ---- | ------------- |
-| `keystone.ts` | The wiring: `createAuth`, `keystoneMcp()`, the storefront, and `trust proxy`, all in one `extendExpressApp` function. |
+| `keystone.ts` | The wiring: `createAuth`, `keystoneMcp()` with a paragraph about the shop for the agent, the storefront, and `trust proxy`, all in one `extendExpressApp` function. |
 | `schema.ts` | The lists and the access rules that make `/mcp` safe. |
 | `storefront.ts` | Two server-rendered pages: the product list at `/` and a product page at `/products/<slug>`. |
 | `seed.ts` | The example data that fills an empty database at start. |

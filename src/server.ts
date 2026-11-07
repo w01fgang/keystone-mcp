@@ -8,39 +8,36 @@ import { CallError, type Catalog, type McpContext } from './types.js';
 
 export const SERVER_INFO = { name: 'keystone-mcp', version: '0.1.0' };
 
-/** Sent in the `initialize` result, so the client knows the order of the tools and the Keystone naming. */
-export const INSTRUCTIONS =
-  'This server runs GraphQL operations on a Keystone app as the signed-in user; Keystone access control decides what is allowed. ' +
-  'Search first, then call: searchTool finds an operation and shows its arguments and field paths, and callTool runs it by name. ' +
-  'Each list, for example Post, has one-record operations that take where: { id }. ' +
-  'Read one record: callTool { operation: "post", args: { where: { id } }, select: [...] }. ' +
-  'Update one record: callTool { operation: "updatePost", args: { where: { id }, data: { ... } } }. ' +
-  'Delete one record: callTool { operation: "deletePost", args: { where: { id } } }.';
+/**
+ * The text that the agent reads: tool descriptions, argument descriptions and the search-off message. Like the
+ * instructions from `buildInstructions`, it describes the project and names no technology.
+ */
+const SEARCH_OFF_MESSAGE =
+  "searchTool is off in this project. Ask the app's owner to turn search on. " +
+  'callTool still runs an operation by name; the server instructions name the operations for one record.';
 
 export interface McpServerOptions {
   catalog: Catalog;
   /** The context of one HTTP request, from `context.withRequest`. `callTool` runs as its session. */
   context: McpContext;
   takeLimit: number;
-  /** When `false`, `searchTool` returns a tool error that names the `introspection` option. */
+  /** When `false`, `searchTool` returns a tool error that asks the agent to have search turned on. */
   introspection: boolean;
+  /** The server instructions that `initialize` sends, from `buildInstructions`. */
+  instructions: string;
 }
 
-const SEARCH_OFF_MESSAGE =
-  'searchTool is off: the keystoneMcp option introspection is false, its default when NODE_ENV is production. ' +
-  'Pass keystoneMcp({ introspection: true }) in keystone.ts to turn it on. callTool still runs operations by name.';
-
 /** Creates an MCP server with the tools `searchTool` and `callTool` for one request. */
-export function createMcpServer({ catalog, context, takeLimit, introspection }: McpServerOptions): McpServer {
-  const server = new McpServer(SERVER_INFO, { instructions: INSTRUCTIONS });
+export function createMcpServer({ catalog, context, takeLimit, introspection, instructions }: McpServerOptions): McpServer {
+  const server = new McpServer(SERVER_INFO, { instructions });
 
   server.registerTool(
     'searchTool',
     {
       description:
-        'Find the GraphQL queries and mutations of this Keystone app. ' +
-        'Each result has the operation name, its kind, its return type, its argument signatures, ' +
-        'and the field paths that callTool can select.',
+        'Find the operations of this project: the ways to read and change its records. ' +
+        'Each result has the operation name, its kind (query reads, mutation changes), its return type, ' +
+        'its argument signatures, and the field paths that callTool can select.',
       inputSchema: {
         text: z.string().describe('Words to match, for example "posts" or "create user".'),
         limit: z
@@ -61,8 +58,8 @@ export function createMcpServer({ catalog, context, takeLimit, introspection }: 
     'callTool',
     {
       description:
-        'Run one GraphQL operation that searchTool found, as the session of this request. ' +
-        `Arguments become GraphQL variables. A take argument is at most ${takeLimit}. ` +
+        'Run one operation that searchTool found, as the signed-in user. ' +
+        `args holds the argument values by name. A take argument is at most ${takeLimit}. ` +
         'select lists field paths from searchTool; without select, the call returns the top-level paths.',
       inputSchema: {
         operation: z.string().describe('The operation name from searchTool, for example "posts".'),

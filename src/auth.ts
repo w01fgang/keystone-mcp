@@ -188,7 +188,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       refreshTokens.delete(refreshToken);
       if (resource && !sameResource(resource.href, record.resource)) throw new InvalidTargetError('resource does not match.');
       if (!(await sessionOf(commonContext, record.sessionToken))) {
-        throw new InvalidGrantError('The Keystone session has ended. Sign in again.');
+        throw new InvalidGrantError('Your session has ended. Sign in again.');
       }
       return issueTokens(record);
     },
@@ -310,7 +310,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       const context = await commonContext.withRequest(req, res);
       if (!context.session) {
         accessTokens.delete(match![1]!);
-        sendUnauthorized(res, metadataUrl, 'The Keystone session has ended. Sign in again.');
+        sendUnauthorized(res, metadataUrl, 'Your session has ended. Sign in again.');
         return undefined;
       }
       return context;
@@ -374,7 +374,7 @@ label{display:block;margin-top:1rem}input{width:100%;padding:.5rem;font:inherit;
 .warn{background:#fff4d6}.error{background:#fde2e2}button{margin-top:1.5rem;margin-right:.5rem;padding:.5rem 1rem;font:inherit}</style>
 </head><body>
 <h1>Sign in to connect an MCP client</h1>
-<p>${name} asks to act as you in this Keystone app. It can read and change what your account can read and change.</p>
+<p>${name} asks to act as you in this app. It can read and change what your account can read and change.</p>
 <p>After you sign in, your browser goes to <span class="host">${escapeHtml(host)}</span>. Continue only if you started this connection there.</p>
 ${loopback ? '<p class="warn">This address is on your own computer. Any program on this computer can listen there. Continue only if you started the connection from an app on this computer.</p>' : ''}
 ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}

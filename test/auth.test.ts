@@ -210,8 +210,10 @@ describe('OAuth for /mcp', () => {
     const response = await listTools(base, accessToken);
     expect(response.status).toBe(401);
     expect(response.headers.get('www-authenticate')).toContain('resource_metadata=');
+    expect(response.headers.get('www-authenticate')).not.toMatch(/keystone/i);
     const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
     expect(refreshed.body.error).toBe('invalid_grant');
+    expect(refreshed.body.error_description).not.toMatch(/keystone/i);
   });
 
   it('refuses to mount on a schema without a password sign-in mutation', () => {

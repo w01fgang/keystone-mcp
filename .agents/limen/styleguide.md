@@ -4,8 +4,8 @@
 
 ## Shape
 
-- One module per responsibility in `src/`: `types.ts`, `catalog.ts`, `search.ts`, `call.ts`, `server.ts`, `auth.ts`, `mount.ts`. `src/index.ts` only re-exports.
-- Pure functions build data (`buildCatalog`, `searchCatalog`, `buildCall`). Only `server.ts`, `auth.ts` and `mount.ts` touch the MCP SDK and Express.
+- One module per responsibility in `src/`: `types.ts`, `catalog.ts`, `search.ts`, `call.ts`, `instructions.ts`, `server.ts`, `auth.ts`, `mount.ts`. `src/index.ts` only re-exports.
+- Pure functions build data (`buildCatalog`, `searchCatalog`, `buildCall`, `buildInstructions`). Only `server.ts`, `auth.ts` and `mount.ts` touch the MCP SDK and Express.
 - Tests live in `test/`, one file per module, and share the GraphQL fixture in `test/schema.ts`.
 
 ## Prefer

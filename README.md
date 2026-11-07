@@ -41,7 +41,9 @@ export default withAuth(
     lists,
     session,
     server: {
-      extendExpressApp: keystoneMcp(),
+      extendExpressApp: keystoneMcp({
+        instructions: 'The blog of Example Inc. Authors write posts; readers leave comments.',
+      }),
     },
   }),
 );
@@ -67,7 +69,8 @@ server: {
 | `path`        | `/mcp`  | The HTTP path of the endpoint.                                            |
 | `queriesOnly` | `false` | When `true`, the catalog holds queries only, and `callTool` cannot mutate. |
 | `takeLimit`   | `50`    | The maximum `take` that `callTool` sends, in either direction. A missing `take` becomes this. A negative `take` reads from the end and stops at `-takeLimit`. |
-| `introspection` | `NODE_ENV !== 'production'` | When `false`, `searchTool` returns a tool error that names this option, and `callTool` still runs operations by name. The default follows Apollo Server's `introspection` default. Keystone does not pass the app's `graphql.apolloConfig` to `extendExpressApp`, so to match it, pass the same value to both. |
+| `introspection` | `NODE_ENV !== 'production'` | When `false`, `searchTool` returns a tool error that asks the agent to have the app's owner turn search on, and `callTool` still runs operations by name. The server instructions still name the operations for one record. The default follows Apollo Server's `introspection` default. Keystone does not pass the app's `graphql.apolloConfig` to `extendExpressApp`, so to match it, pass the same value to both. |
+| `instructions` | none | One paragraph about the project, in your words. The server instructions start with it, before the part that the package builds from the catalog. |
 
 ## Behavior
 
@@ -76,7 +79,8 @@ server: {
 - A `POST <path>` without a valid access token gets `401` with `WWW-Authenticate: Bearer … resource_metadata="<origin>/.well-known/oauth-protected-resource<path>"`.
 - `callTool` runs `context.withRequest(req, res)` and then `context.graphql.run`, with the Keystone session of the user behind the access token. Keystone access control applies as for any GraphQL request.
 - When the GraphQL call fails, `callTool` returns a tool error whose text is `{"errors":[{"message":…,"extensions":{"code":…}}]}`, with the message and code that `/api/graphql` gives for the same failure. An error that Prisma caused becomes `Prisma error` with code `KS_PRISMA_ERROR`. The app's `graphql.apolloConfig.formatError` does not run on this path.
-- The `initialize` result carries short `instructions` for the client: search first, then call, and how to read, update and delete one record by `where: { id }`.
+- The `initialize` result carries `instructions` for the client: the `instructions` option first, then the kinds of records in plain words (from the list names, for example `products` and `order lines`), the operations for one record of each kind, and how to search and call. With `introspection` off, it still names the operations.
+- The text that the agent reads (server instructions, tool and argument descriptions, the search-off message, the sign-in page and the session-ended errors) describes the project and names no technology: no Keystone, GraphQL or Prisma. Error text from a failed call stays as `/api/graphql` gives it.
 - The catalog skips the root field `keystone`. Keystone builds a new catalog after each dev rebuild.
 - The JSON and form body parsers run on `<path>` and `<path>/oauth/*` only.
 

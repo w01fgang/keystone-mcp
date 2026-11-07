@@ -15,7 +15,14 @@ const { withAuth } = createAuth({
 });
 
 // Create the MCP function once, outside extendExpressApp. Keystone calls extendExpressApp again after each dev rebuild.
-const mcp = keystoneMcp();
+// The agent reads `instructions` first when it connects, so it learns what this project is.
+const mcp = keystoneMcp({
+  instructions:
+    'This is a small online shop. It sells products, sorted into categories. ' +
+    'Its users are the customers and the admins of the shop. A customer places orders; ' +
+    'each order has one order line for each product bought. Prices are in cents (priceCents). ' +
+    'A customer reads the products and their own orders. An admin can read and change everything.',
+});
 
 export default withAuth(
   config({
