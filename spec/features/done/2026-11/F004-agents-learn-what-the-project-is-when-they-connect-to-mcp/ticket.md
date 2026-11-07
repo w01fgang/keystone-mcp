@@ -3,6 +3,7 @@ touches:
   - keystone-mcp.server
   - keystone-mcp.mount
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F004 · Agents learn what the project is when they connect to /mcp
