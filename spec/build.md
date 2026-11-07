@@ -18,7 +18,7 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 ## NEXT
 
-- Owner runs `npm publish --access public` in the repository root; then change the vision line on publishing to say 0.1.0 is on npm.
+- Owner approves the staged 0.1.0 with 2FA (npmjs.com, Staged Packages tab, or `npm stage approve <id>` with npm 11.15 or later). On 2026-11-07 the registry held only the staging placeholder `0.0.0-stage` as `latest`, and `npm stage list` with this seat's credentials showed nothing. After 0.1.0 is live, change the vision line on publishing.
 
 ## PROVEN
 
