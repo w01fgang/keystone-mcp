@@ -38,7 +38,8 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.cjs.json && node -e \"require('fs').writeFileSync('dist/cjs/package.json', '{\\\"type\\\":\\\"commonjs\\\"}\\\\n')\"",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "npm test && npm run build"
+    "prepublishOnly": "npm test && npm run build",
+    "lint": "oxlint --deny-warnings"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
@@ -53,6 +54,7 @@
     "@keystone-6/cloudinary": "10.0.6",
     "@keystone-6/core": "8.3.0",
     "@keystone-6/fields-document": "11.0.6",
+    "@oxlint/plugins": "1.92.0",
     "@prisma/adapter-better-sqlite3": "7.10.1",
     "@prisma/client": "7.10.1",
     "@types/express": "^4.17.25",
@@ -60,6 +62,7 @@
     "better-sqlite3": "12.11.1",
     "express": "^4.22.3",
     "graphql": "^16.14.2",
+    "oxlint": "1.92.0",
     "prisma": "7.10.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.0"
