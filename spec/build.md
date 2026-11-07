@@ -16,8 +16,6 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
-- `F002-keystone-admins-connect-claude-desktop-to-mcp-by-signing-in-with-their-browser` (🟠 ACTIVE): Keystone admins connect Claude Desktop to /mcp by signing in with their browser
-
 ## NEXT
 
 - Publish to npm: package metadata, `LICENSE`, a `prepublishOnly` check, then `npm publish` by the owner's account once the name and repository are chosen.
@@ -28,5 +26,6 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 - `F004-agents-learn-what-the-project-is-when-they-connect-to-mcp` (🟢 PROVEN): Agents learn what the project is when they connect to /mcp; landed 2026-11-07
 - `F003-the-repository-has-a-small-shop-example-that-shows-how-to-use-the-package` (🟢 PROVEN): The repository has a small shop example that shows how to use the package; landed 2026-11-07
+- `F002-keystone-admins-connect-claude-desktop-to-mcp-by-signing-in-with-their-browser` (🟢 PROVEN): Keystone admins connect Claude Desktop to /mcp by signing in with their browser; landed 2026-11-07
 - `F001-keystone-apps-answer-mcp-clients-with-searchtool-and-calltool` (🟢 PROVEN): Keystone apps answer MCP clients with searchTool and callTool; landed 2026-11-06
-- 2026-11: 3 landed. spec/features/done/2026-11/
+- 2026-11: 4 landed. spec/features/done/2026-11/

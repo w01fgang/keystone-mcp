@@ -3,6 +3,7 @@ touches:
   - keystone-mcp.mount
   - keystone-mcp.server
 opened: 2026-11-06
+landed: 2026-11-07
 ---
 
 # F002 · Keystone admins connect Claude Desktop to /mcp by signing in with their browser
