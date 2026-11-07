@@ -10,8 +10,10 @@
     "start": "keystone start"
   },
   "dependencies": {
-    "@keystone-6/auth": "^8.1.0",
-    "@keystone-6/core": "^6.5.3",
+    "@keystone-6/auth": "^10.0.6",
+    "@keystone-6/core": "^8.3.0",
+    "@prisma/adapter-better-sqlite3": "^7.10.1",
+    "better-sqlite3": "^12.11.1",
     "keystone-mcp": "file:../.."
   }
 }

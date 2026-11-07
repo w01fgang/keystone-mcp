@@ -1,6 +1,7 @@
 import { config } from '@keystone-6/core';
 import { statelessSessions } from '@keystone-6/core/session';
 import { createAuth } from '@keystone-6/auth';
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { keystoneMcp } from 'keystone-mcp';
 import { lists, type Session } from './schema';
 import { seed } from './seed';
@@ -28,7 +29,8 @@ export default withAuth(
   config({
     db: {
       provider: 'sqlite',
-      url: 'file:./keystone.db',
+      // Prisma 7 opens SQLite through an adapter. prisma.config.ts names the same file for `prisma db push`.
+      prismaClientOptions: () => ({ adapter: new PrismaBetterSqlite3({ url: 'file:./keystone.db' }) }),
       onConnect: seed,
     },
     lists,

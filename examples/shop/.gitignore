@@ -2,3 +2,4 @@ node_modules/
 .keystone/
 keystone.db
 keystone.db-journal
+/generated/

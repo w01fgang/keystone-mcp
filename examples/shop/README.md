@@ -1,10 +1,11 @@
 # Shop example
 
-A small Keystone 6 online shop that uses `keystone-mcp`. It has a storefront, an Admin UI, and an MCP endpoint at `/mcp`. Claude Desktop connects to `/mcp`, signs in as a shop user, and can then read and change the shop within that user's access rules.
+A small Keystone 6 online shop that uses `keystone-mcp`. It has a storefront, an Admin UI, and an MCP endpoint at `/mcp`. Claude Desktop connects to `/mcp`, signs in as a shop user, and can then read and change the shop within that user's access rules. It runs on `@keystone-6/core` 8.3, `@keystone-6/auth` 10 and Prisma 7.
 
 | File | What it shows |
 | ---- | ------------- |
-| `keystone.ts` | The wiring: `createAuth`, `keystoneMcp()` with a paragraph about the shop for the agent, the storefront, and `trust proxy`, all in one `extendExpressApp` function. |
+| `keystone.ts` | The wiring: `createAuth`, `keystoneMcp()` with a paragraph about the shop for the agent, the storefront, and `trust proxy`, all in one `extendExpressApp` function. It opens the SQLite database through the Prisma adapter `@prisma/adapter-better-sqlite3`. |
+| `prisma.config.ts` | The database file for `prisma db push`, which `keystone dev` runs at start. It names the same file as `keystone.ts`. |
 | `schema.ts` | The lists and the access rules that make `/mcp` safe. |
 | `storefront.ts` | Two server-rendered pages: the product list at `/` and a product page at `/products/<slug>`. |
 | `seed.ts` | The example data that fills an empty database at start. |
@@ -25,7 +26,7 @@ npm run dev
 
 - `npm run build` in the repository root builds the package into `dist`. The example depends on it with `"keystone-mcp": "file:../.."`.
 - The `.npmrc` of the example sets `install-links=true`, so npm installs the package as a copy, not as a link. The copy then shares the `graphql` and `express` copies of Keystone.
-- On the first start, Keystone creates `keystone.db` (SQLite) and the seed data.
+- On the first start, Keystone creates `keystone.db` (SQLite) and the seed data. It also writes the Prisma client and the TypeScript types into `generated/`, which Git ignores.
 
 Open:
 
