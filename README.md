@@ -128,7 +128,7 @@ Claude connects from Anthropic's cloud (`160.79.104.0/21`), so the app must be r
 1. In Claude Desktop, open **Customize > Connectors**. On a Team or Enterprise plan, an Owner adds the connector in **Organization settings > Connectors** with **Add**, then **Custom**.
 2. Click **Add custom connector**.
 3. Enter a name, for example `Keystone`, and the URL of the endpoint, for example `https://cms.example.com/mcp`. The URL must be the app's public origin followed by `path`.
-4. If the dialog asks how Claude identifies itself, choose **Register automatically**. The package supports dynamic client registration, not Claude's published identity. Leave the OAuth client ID and secret empty.
+4. If the dialog asks how Claude identifies itself, choose **Register automatically**. The package supports dynamic client registration. Leave the OAuth client ID and secret empty.
 5. Click **Add**, then **Connect**. A browser window opens the sign-in page of the app.
 6. Check that the page says your browser goes to `claude.ai`. Enter your Keystone email and password, and click **Sign in and allow**.
 7. The browser returns to Claude, and the connector shows as connected. Ask Claude, for example, "Find the posts with draft status and publish the first one."

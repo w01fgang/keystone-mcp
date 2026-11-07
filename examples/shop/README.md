@@ -27,7 +27,7 @@ npm run dev
 ```
 
 - `npm run build` in the repository root builds the package into `dist`. The example depends on it with `"keystone-mcp": "file:../.."`.
-- The `.npmrc` of the example sets `install-links=true`, so npm installs the package as a copy, not as a link. The copy then shares the `graphql` and `express` copies of Keystone.
+- The `.npmrc` of the example sets `install-links=true`, so npm installs the package as a copy. The copy then shares the `graphql` and `express` copies of Keystone.
 - On the first start, Keystone creates `keystone.db` (SQLite) and the seed data. It also writes the Prisma client and the TypeScript types into `generated/`, which Git ignores.
 - `SESSION_SECRET` keeps the sign-ins of the Admin UI and of MCP clients when `keystone dev` rebuilds after you edit a file. Without it, Keystone makes a new session secret each time it loads `keystone.ts`.
 - `MCP_SECRET` goes to `keystoneMcp({ secret })`. With it and `SESSION_SECRET`, MCP clients also stay signed in after a restart, and on a second process started with the same two values.
@@ -78,7 +78,7 @@ Edit `schema.ts`, for example add `graphql: { omit: { delete: true } }` to `Cate
 
 ## Reach the app over HTTPS
 
-Claude connects from Anthropic's cloud, not from your computer, so the app must be reachable over public HTTPS. For a local app, use a tunnel. With [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/):
+Claude connects from Anthropic's cloud, so the app must be reachable over public HTTPS. A `localhost` URL does not work. For a local app, use a tunnel. With [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/):
 
 ```sh
 cloudflared tunnel --url http://localhost:3000

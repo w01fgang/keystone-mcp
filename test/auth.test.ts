@@ -187,7 +187,7 @@ describe.each([
     expect(responses.filter((response) => response.status === 400)).toHaveLength(5);
   });
 
-  it('answers 500 when Keystone fails during sign-in, instead of leaving the request open', async () => {
+  it('answers 500 with no redirect when Keystone fails during sign-in', async () => {
     const { base, commonContext } = await start();
     const { html } = await openSignIn(base);
     commonContext.withRequest = () => Promise.reject(new Error('the database is down'));

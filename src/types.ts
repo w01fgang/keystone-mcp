@@ -10,7 +10,7 @@ export interface KeystoneMcpOptions {
   /** The maximum value of the `take` argument that `callTool` sends. Default: `50`. */
   takeLimit?: number;
   /**
-   * When `false`, `searchTool` returns a tool error instead of the catalog. `callTool` keeps working.
+   * When `false`, `searchTool` returns a tool error and no catalog. `callTool` keeps working.
    * Default: `true`, except when `NODE_ENV` is `production`, as Apollo Server's `introspection` default.
    */
   introspection?: boolean;

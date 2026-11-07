@@ -16,7 +16,7 @@ export interface Call {
   variables: JsonObject;
 }
 
-/** A JSON number. `JSON.parse` reads a number beyond the range of a double, for example `1e400`, as `Infinity`. */
+/** A JSON number. `JSON.parse` reads a number outside the range of a double, for example `1e400`, as `Infinity`. */
 const jsonNumber = z.union([z.number(), z.literal([Infinity, -Infinity])]);
 
 /**

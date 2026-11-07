@@ -284,7 +284,7 @@ describe('every Keystone field type through searchTool and callTool', () => {
     expect(error.message).toMatch(/^Argument "data"/);
   });
 
-  it('stores bigInt fields as strings beyond the safe integer range, and filters on them', async () => {
+  it('stores bigInt fields above Number.MAX_SAFE_INTEGER as strings, and filters on them', async () => {
     await roundTrip({
       list: 'BigIntItem',
       select: ['required', 'withDefault'],
