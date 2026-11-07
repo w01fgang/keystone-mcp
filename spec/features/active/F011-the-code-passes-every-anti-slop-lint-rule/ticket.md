@@ -1,6 +1,11 @@
 ---
 opened: 2026-11-07
-touches: [src, test, examples/shop]
+touches:
+  - keystone-mcp
+  - keystone-mcp.call
+  - keystone-mcp.server
+  - keystone-mcp.mount
+  - keystone-mcp.catalog
 ---
 
 # F011 · The code passes every anti-slop lint rule
