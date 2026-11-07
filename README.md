@@ -10,6 +10,8 @@ An MCP client such as Claude Desktop connects with OAuth: the user signs in with
 
 The package uses only the public hook `server.extendExpressApp` and the public context. It does not modify `@keystone-6/core`.
 
+For a working app, start with the shop example in [`examples/shop`](examples/shop/README.md): a small Keystone 6 shop with access rules, seed data, a storefront, and the steps to connect Claude Desktop.
+
 ## Install
 
 The package is not on npm yet. Use a `file:` dependency, installed as a copy so that the package shares the `graphql` and `express` copies of the app:

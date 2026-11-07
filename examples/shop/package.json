@@ -1,0 +1,17 @@
+{
+  "name": "keystone-mcp-example-shop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A small Keystone 6 shop with an MCP endpoint from keystone-mcp.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "keystone dev",
+    "build": "keystone build",
+    "start": "keystone start"
+  },
+  "dependencies": {
+    "@keystone-6/auth": "^8.1.0",
+    "@keystone-6/core": "^6.5.3",
+    "keystone-mcp": "file:../.."
+  }
+}
