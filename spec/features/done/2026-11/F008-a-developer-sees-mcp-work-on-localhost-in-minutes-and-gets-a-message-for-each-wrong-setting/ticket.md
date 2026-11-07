@@ -1,5 +1,6 @@
 ---
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F008 · A developer sees /mcp work on localhost in minutes and gets a message for each wrong setting

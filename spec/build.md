@@ -16,8 +16,6 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
-- `F008-a-developer-sees-mcp-work-on-localhost-in-minutes-and-gets-a-message-for-each-wrong-setting` (🟠 ACTIVE): A developer sees /mcp work on localhost in minutes and gets a message for each wrong setting
-
 ## NEXT
 
 - 🔴 Sign-ins survive a restart and work across processes, with a new `secret` option (F009); waits for the owner to approve the sixth option.
@@ -26,6 +24,7 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/done/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F008-a-developer-sees-mcp-work-on-localhost-in-minutes-and-gets-a-message-for-each-wrong-setting` (🟢 PROVEN): A developer sees /mcp work on localhost in minutes and gets a message for each wrong setting; landed 2026-11-07
 - `F007-the-shop-example-runs-on-current-keystone-with-no-known-vulnerabilities` (🟢 PROVEN): The shop example runs on current Keystone with no known vulnerabilities; landed 2026-11-07
 - `F006-every-keystone-field-type-works-through-searchtool-and-calltool` (🟢 PROVEN): Every Keystone field type works through searchTool and callTool; landed 2026-11-07
 - `F005-error-text-from-mcp-names-no-technology` (🟢 PROVEN): Error text from /mcp names no technology; landed 2026-11-07
@@ -33,4 +32,4 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 - `F003-the-repository-has-a-small-shop-example-that-shows-how-to-use-the-package` (🟢 PROVEN): The repository has a small shop example that shows how to use the package; landed 2026-11-07
 - `F002-keystone-admins-connect-claude-desktop-to-mcp-by-signing-in-with-their-browser` (🟢 PROVEN): Keystone admins connect Claude Desktop to /mcp by signing in with their browser; landed 2026-11-07
 - `F001-keystone-apps-answer-mcp-clients-with-searchtool-and-calltool` (🟢 PROVEN): Keystone apps answer MCP clients with searchTool and callTool; landed 2026-11-06
-- 2026-11: 7 landed. spec/features/done/2026-11/
+- 2026-11: 8 landed. spec/features/done/2026-11/
