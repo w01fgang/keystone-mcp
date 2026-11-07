@@ -66,10 +66,10 @@ server: {
 At start, and again after each `keystone dev` rebuild, the server log shows one line for the endpoint:
 
 ```text
-keystone-mcp: MCP endpoint at /mcp: 48 operations, search on, sign-in with authenticateUserWithPassword.
+keystone-mcp: MCP endpoint at /mcp: 48 operations, search on, sign-in with authenticateUserWithPassword, sign-ins end at restart; keystoneMcp({ secret }) keeps them.
 ```
 
-It names the path, the number of operations that the agent can find, whether `searchTool` is on, and the mutation that the sign-in page runs. When search is off, the line names the reason and the option that turns it on: `search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on`.
+It names the path, the number of operations that the agent can find, whether `searchTool` is on, the mutation that the sign-in page runs, and whether sign-ins survive a restart. When search is off, the line names the reason and the option that turns it on: `search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on`. With the `secret` option, the line ends with `sign-ins sealed with secret`.
 
 ## Try it on your computer
 
@@ -95,11 +95,12 @@ An MCP client that runs on your computer, such as MCP Inspector or Claude Code, 
 
 5. Run a call. In MCP Inspector, open **Tools** and choose `callTool`. Enter the operation `products` and the select `["name"]`, and click **Execute Tool**. The result holds the products that this user may read. In Claude Code, ask for the products.
 
-After a schema edit, `keystone dev` rebuilds and logs the mount line again, with the new number of operations. The client stays signed in. After a restart of the process, it signs in again.
+After a schema edit, `keystone dev` rebuilds and logs the mount line again, with the new number of operations. The client stays signed in. After a restart of the process, it signs in again, unless the app sets `secret`.
 
 ## Before you deploy
 
-- **`SESSION_SECRET`.** Set a random string of 32 characters or more, and pass it to `statelessSessions`. Without it, each start makes a new secret, and every user signs in again.
+- **`SESSION_SECRET`.** Set a random string of 32 characters or more, and pass it to `statelessSessions`. Without it, each start makes a new secret, and every user signs in again. Give every process the same value.
+- **`secret`.** Set a second random string of 32 characters or more, for example `openssl rand -hex 32` in `MCP_SECRET`, and pass `keystoneMcp({ secret: process.env.MCP_SECRET })`. Give every process the same value. Then MCP clients stay signed in across a deploy or restart, and every process behind a load balancer accepts their tokens. Without it, clients and tokens live in the memory of one process: a restart signs every user out, and another process rejects them. A new `secret` ends every grant, so change it only to sign everyone out.
 - **`trust proxy`.** Behind a proxy or tunnel that ends TLS, set Express `trust proxy` in `extendExpressApp`. Without it, Express reads each request as `http`, the OAuth URLs use `http`, and a client that connected over `https` refuses them. The server log warns once per process when a request has `X-Forwarded-Proto: https` but Express reads `http`:
 
   ```text
@@ -118,7 +119,7 @@ After a schema edit, `keystone dev` rebuilds and logs the mount line again, with
   ```
 
 - **`introspection`.** With `NODE_ENV=production`, `searchTool` is off by default, as in Apollo Server, and the mount line says so. To keep search, pass `keystoneMcp({ introspection: true })`. `callTool` works either way.
-- **One process.** Clients and tokens live in the memory of the process. They survive a dev rebuild, but not a restart, and another process does not know them. Run one process per app.
+- **Several processes.** Set `secret` and `SESSION_SECRET` to the same values in each. Without `secret`, run one process per app.
 
 ## Connect Claude Desktop
 
@@ -168,6 +169,7 @@ hooks: {
 | `takeLimit`   | `50`    | The maximum `take` that `callTool` sends, in either direction. A missing `take` becomes this. A negative `take` reads from the end and stops at `-takeLimit`. |
 | `introspection` | `NODE_ENV !== 'production'` | When `false`, `searchTool` returns a tool error that asks the agent to have the app's owner turn search on, and `callTool` still runs operations by name. The server instructions still name the operations for one record. The default follows Apollo Server's `introspection` default. Keystone does not pass the app's `graphql.apolloConfig` to `extendExpressApp`, so to match it, pass the same value to both. |
 | `instructions` | none | One paragraph about the project, in your words. The server instructions start with it, before the part that the package builds from the catalog. |
+| `secret` | none | A random string of 32 characters or more, the same in every process. With it, the OAuth clients, sign-ins, codes and tokens are sealed values that need no server state, so MCP clients stay signed in across a restart and every process accepts them. Without it, they live in the memory of the process and end at restart. A shorter string throws at start. See [Sign-in](#sign-in-oauth-21) for what a sealed grant cannot do. |
 
 ## Behavior
 
@@ -192,13 +194,15 @@ The package is the OAuth authorization server for its own endpoint. It serves:
 | `/.well-known/oauth-authorization-server` | Authorization server metadata (RFC 8414). The issuer is the origin of the app. |
 | `<path>/oauth/register` | Dynamic client registration (RFC 7591). Redirect URIs must use `https`, or `http` on a loopback host. |
 | `<path>/oauth/authorize` | The sign-in and consent page. It shows the host that the browser returns to. |
-| `<path>/oauth/token` | Code exchange with S256 PKCE, and refresh. Each refresh returns a new refresh token, and the old one then gets `invalid_grant`. |
+| `<path>/oauth/token` | Code exchange with S256 PKCE, and refresh. Each refresh returns a new refresh token. Without `secret`, the old one then gets `invalid_grant`. |
 | `<path>/oauth/revoke` | Token revocation (RFC 7009). |
 
 - Redirect URIs match exactly. Only the port of a loopback redirect (`localhost`, `127.0.0.1`, `[::1]`) can differ from the registered one.
-- The sign-in page runs the app's password mutation. The Keystone session token stays on the server; the client gets its own access token (1 hour) and refresh token.
+- The sign-in page runs the app's password mutation. The client gets its own access token (1 hour) and refresh token; the Keystone session token is never readable by the client.
 - The grant ends with the Keystone session: when the session expires (`statelessSessions` `maxAge`, 8 hours by default) or the user is deleted, `/mcp` answers `401` and refresh answers `invalid_grant`, so the client asks the user to sign in again.
-- Clients and tokens live in the memory of the process. They survive a `keystone dev` rebuild, because Keystone keeps the package loaded. After a restart, each user signs in again. Run one process per app.
+- Without `secret`, clients and tokens live in the memory of the process. They survive a `keystone dev` rebuild, because Keystone keeps the package loaded. After a restart, each user signs in again. Run one process per app.
+- With `secret`, the server keeps no OAuth state. The `client_id`, the transaction of the sign-in page, the code and the tokens are values sealed with AES-256-GCM under a key derived from `secret`, so a client cannot read or change them. A value sealed with another secret, changed in one character, or expired gets `401` on `/mcp` and an error at the token endpoint. A `client_id` is about 250 characters and an access token about 900.
+- What a sealed grant cannot do, because no server remembers its use: a code works more than once within its 5 minutes (PKCE still binds it to the client's verifier); a refresh token keeps working after it was used, until it expires (30 days), so its reuse is not detected; revoke does nothing, so a grant ends only when the Keystone session ends or the token expires; the limit of 5 password tries on one sign-in page counts in each process. Keystone's `statelessSessions` has the same limits.
 - The issuer and resource URLs come from each request: `req.protocol` and the `Host` header. Behind a proxy or tunnel that ends TLS, set Express `trust proxy`, so that the URLs use `https`. See [Before you deploy](#before-you-deploy).
 
 ## Tool input

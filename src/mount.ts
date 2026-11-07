@@ -14,10 +14,14 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
     // Apollo Server's default. Keystone passes extendExpressApp no config, so the app's apolloConfig is out of reach.
     introspection: options.introspection ?? process.env.NODE_ENV !== 'production',
     instructions: options.instructions?.trim() || undefined,
+    secret: options.secret,
   };
   if (!resolved.path.startsWith('/')) throw new TypeError(`keystoneMcp: path must start with "/", got "${resolved.path}".`);
   if (!Number.isInteger(resolved.takeLimit) || resolved.takeLimit < 1) {
     throw new TypeError(`keystoneMcp: takeLimit must be a positive integer, got ${resolved.takeLimit}.`);
+  }
+  if (resolved.secret !== undefined && (typeof resolved.secret !== 'string' || resolved.secret.length < 32)) {
+    throw new TypeError('keystoneMcp: secret must be a string of 32 characters or more.');
   }
   return resolved;
 }
@@ -28,20 +32,21 @@ function resolveOptions(options: KeystoneMcpOptions): ResolvedOptions {
  * access token and creates a stateless MCP server that runs as the Keystone session behind that token.
  */
 export function keystoneMcp(options: KeystoneMcpOptions = {}) {
-  const { path, queriesOnly, takeLimit, introspection, instructions: about } = resolveOptions(options);
+  const { path, queriesOnly, takeLimit, introspection, instructions: about, secret } = resolveOptions(options);
   const search = introspection
     ? 'search on'
     : `search off (${options.introspection === false ? 'introspection: false' : 'NODE_ENV=production'}); ` +
       'keystoneMcp({ introspection: true }) turns it on';
+  const signIns = secret ? 'sign-ins sealed with secret' : 'sign-ins end at restart; keystoneMcp({ secret }) keeps them';
 
   return function extendExpressApp(app: Express, commonContext: McpContext): void {
     // Keystone calls extendExpressApp again after each dev rebuild, with the new schema.
     const catalog = buildCatalog(commonContext.graphql.schema, { queriesOnly });
     const instructions = buildInstructions(catalog, { about, introspection });
     app.use([path, '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server'], warnUntrustedProxy);
-    const oauth = mountOAuth(app, commonContext, path);
+    const oauth = mountOAuth(app, commonContext, path, secret);
     console.log(
-      `keystone-mcp: MCP endpoint at ${path}: ${catalog.entries.length} operations, ${search}, sign-in with ${oauth.mutation.name}.`,
+      `keystone-mcp: MCP endpoint at ${path}: ${catalog.entries.length} operations, ${search}, sign-in with ${oauth.mutation.name}, ${signIns}.`,
     );
 
     app.post(path, express.json(), async (req: Request, res: Response) => {

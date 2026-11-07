@@ -4,7 +4,7 @@ A small Keystone 6 online shop that uses `keystone-mcp`. It has a storefront, an
 
 | File | What it shows |
 | ---- | ------------- |
-| `keystone.ts` | The wiring: `createAuth`, `keystoneMcp()` with a paragraph about the shop for the agent, the storefront, and `trust proxy`, all in one `extendExpressApp` function. It opens the SQLite database through the Prisma adapter `@prisma/adapter-better-sqlite3`. |
+| `keystone.ts` | The wiring: `createAuth`, `keystoneMcp()` with a paragraph about the shop for the agent and `secret` from `MCP_SECRET`, the storefront, and `trust proxy`, all in one `extendExpressApp` function. It opens the SQLite database through the Prisma adapter `@prisma/adapter-better-sqlite3`. |
 | `prisma.config.ts` | The database file for `prisma db push`, which `keystone dev` runs at start. It names the same file as `keystone.ts`. |
 | `schema.ts` | The lists and the access rules that make `/mcp` safe. |
 | `storefront.ts` | Two server-rendered pages: the product list at `/` and a product page at `/products/<slug>`. |
@@ -22,6 +22,7 @@ npm run build
 cd examples/shop
 npm install
 export SESSION_SECRET="$(openssl rand -hex 32)"
+export MCP_SECRET="$(openssl rand -hex 32)"
 npm run dev
 ```
 
@@ -29,7 +30,8 @@ npm run dev
 - The `.npmrc` of the example sets `install-links=true`, so npm installs the package as a copy, not as a link. The copy then shares the `graphql` and `express` copies of Keystone.
 - On the first start, Keystone creates `keystone.db` (SQLite) and the seed data. It also writes the Prisma client and the TypeScript types into `generated/`, which Git ignores.
 - `SESSION_SECRET` keeps the sign-ins of the Admin UI and of MCP clients when `keystone dev` rebuilds after you edit a file. Without it, Keystone makes a new session secret each time it loads `keystone.ts`.
-- The log shows the MCP endpoint: `keystone-mcp: MCP endpoint at /mcp: 48 operations, search on, sign-in with authenticateUserWithPassword.`
+- `MCP_SECRET` goes to `keystoneMcp({ secret })`. With it and `SESSION_SECRET`, MCP clients also stay signed in after a restart, and on a second process started with the same two values.
+- The log shows the MCP endpoint: `keystone-mcp: MCP endpoint at /mcp: 48 operations, search on, sign-in with authenticateUserWithPassword, sign-ins sealed with secret.` Without `MCP_SECRET`, it ends with `sign-ins end at restart; keystoneMcp({ secret }) keeps them.`
 
 Open:
 
@@ -96,7 +98,7 @@ The tunnel ends TLS and forwards plain HTTP to the app. `keystone.ts` sets Expre
 6. Check that the page says your browser goes to `claude.ai`. Sign in as `admin@example.com` with `shop-admin-1234`, and click **Sign in and allow**.
 7. The browser returns to Claude, and the connector shows as connected.
 
-The sign-in lives in the memory of the app. It survives a dev rebuild when `SESSION_SECRET` is set. After a restart, connect again in Claude.
+With `MCP_SECRET` and `SESSION_SECRET` set to the same values, the sign-in survives a dev rebuild and a restart. Without `MCP_SECRET`, it lives in the memory of the app, and after a restart you connect again in Claude.
 
 ## Ask Claude
 
@@ -116,7 +118,7 @@ Disconnect, connect again as `carl@example.com`, and ask "Show my orders": Claud
 
 ```sh
 npm run build
-NODE_ENV=production SESSION_SECRET="$(openssl rand -hex 32)" npm start
+NODE_ENV=production SESSION_SECRET="$(openssl rand -hex 32)" MCP_SECRET="$(openssl rand -hex 32)" npm start
 ```
 
 With `NODE_ENV=production`, `keystoneMcp()` turns introspection off by default. The log says `search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on`, and `searchTool` returns an error that asks for search to be turned on; `callTool` still works. To keep `searchTool`, pass `keystoneMcp({ introspection: true })`.

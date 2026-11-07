@@ -19,6 +19,12 @@ export interface KeystoneMcpOptions {
    * that the package builds from the catalog. Default: none.
    */
   instructions?: string;
+  /**
+   * A random string of 32 characters or more. With it, OAuth clients, sign-ins, codes and tokens are sealed values that
+   * any process with the same secret opens, so sign-ins survive a restart and work across processes. Default: none;
+   * sign-ins then live in the memory of the process and end at restart.
+   */
+  secret?: string;
 }
 
 export interface ResolvedOptions {
@@ -27,6 +33,7 @@ export interface ResolvedOptions {
   takeLimit: number;
   introspection: boolean;
   instructions: string | undefined;
+  secret: string | undefined;
 }
 
 /**

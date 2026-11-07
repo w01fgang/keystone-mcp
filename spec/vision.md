@@ -9,7 +9,7 @@
 - The MCP surface is two tools: `searchTool` finds GraphQL operations, and `callTool` runs one operation.
 - What the agent reads tells it about the project, not the technology under it: no Keystone, GraphQL or Prisma in the instructions, tool text or errors; an error code or message that exposes internals is replaced (owner, 2026-11-07).
 - The catalog comes from the public GraphQL schema of the app. Access control stays with Keystone: `callTool` runs as the session of the request, never through `sudo` or `internal`.
-- The app author controls the surface with five options: `path` (default `/mcp`), `queriesOnly` (default `false`), `takeLimit` (default `50`), `introspection` (default: off when `NODE_ENV=production`, on otherwise, as Apollo's default) and `instructions` (a paragraph about the project, default none).
+- The app author controls the surface with six options: `path` (default `/mcp`), `queriesOnly` (default `false`), `takeLimit` (default `50`), `introspection` (default: off when `NODE_ENV=production`, on otherwise, as Apollo's default), `instructions` (a paragraph about the project, default none) and `secret` (32 characters or more, default none; with it, sign-ins survive a restart and work across processes; owner, 2026-11-07).
 
 ## Current direction
 

@@ -86,9 +86,12 @@ describe('keystoneMcp', () => {
     await client.close();
   });
 
-  it('rejects an invalid path or takeLimit', () => {
+  it('rejects an invalid path, takeLimit or secret', () => {
     expect(() => keystoneMcp({ path: 'mcp' })).toThrow(/path must start/);
     expect(() => keystoneMcp({ takeLimit: 0 })).toThrow(/takeLimit/);
+    expect(() => keystoneMcp({ secret: 'x'.repeat(31) })).toThrow(/secret must be a string of 32 characters or more/);
+    expect(() => keystoneMcp({ secret: '' })).toThrow(/secret/);
+    expect(() => keystoneMcp({ secret: 'x'.repeat(32) })).not.toThrow();
   });
 
   it.each([
@@ -124,14 +127,18 @@ describe('keystoneMcp', () => {
   });
 
   it.each([
-    { nodeEnv: 'development', introspection: undefined, search: 'search on' },
-    { nodeEnv: 'production', introspection: undefined, search: 'search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on' },
-    { nodeEnv: 'development', introspection: false, search: 'search off (introspection: false); keystoneMcp({ introspection: true }) turns it on' },
-  ])('logs one mount line with NODE_ENV=$nodeEnv and introspection $introspection', async ({ nodeEnv, introspection, search }) => {
+    { nodeEnv: 'development', introspection: undefined, secret: undefined, search: 'search on' },
+    { nodeEnv: 'production', introspection: undefined, secret: undefined, search: 'search off (NODE_ENV=production); keystoneMcp({ introspection: true }) turns it on' },
+    { nodeEnv: 'development', introspection: false, secret: undefined, search: 'search off (introspection: false); keystoneMcp({ introspection: true }) turns it on' },
+    { nodeEnv: 'development', introspection: undefined, secret: 'x'.repeat(32), search: 'search on' },
+  ])('logs one mount line with NODE_ENV=$nodeEnv, introspection $introspection and secret $secret', async ({ nodeEnv, introspection, secret, search }) => {
     vi.stubEnv('NODE_ENV', nodeEnv);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await start({ introspection, path: '/ai' });
-    expect(log.mock.calls).toEqual([[`keystone-mcp: MCP endpoint at /ai: 9 operations, ${search}, sign-in with authenticateUserWithPassword.`]]);
+    await start({ introspection, secret, path: '/ai' });
+    const signIns = secret ? 'sign-ins sealed with secret' : 'sign-ins end at restart; keystoneMcp({ secret }) keeps them';
+    expect(log.mock.calls).toEqual([
+      [`keystone-mcp: MCP endpoint at /ai: 9 operations, ${search}, sign-in with authenticateUserWithPassword, ${signIns}.`],
+    ]);
   });
 });
 

@@ -1,10 +1,10 @@
 import { once } from 'node:events';
-import { createServer, type Server } from 'node:http';
+import { createServer, type RequestListener, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
 import express from 'express';
 import { buildSchema } from 'graphql';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { keystoneMcp } from '../src/mount.js';
 import { authorize, CLAUDE_REDIRECT, pkce, register, signIn, submitSignIn, token, transactionOf } from './oauth.js';
 import { ADMIN, fakeContext } from './schema.js';
@@ -12,14 +12,22 @@ import { ADMIN, fakeContext } from './schema.js';
 const servers: Server[] = [];
 afterEach(() => Promise.all(servers.splice(0).map((server) => once(server.close(), 'close'))));
 
-async function start() {
-  const fake = fakeContext();
-  const app = express();
-  keystoneMcp()(app, fake.commonContext);
-  const server = app.listen(0);
+const SECRET = 'a test secret for sealed sign-ins, 32 characters or more';
+const OTHER_SECRET = 'another test secret for sealed sign-ins, 32 characters or more';
+
+async function listen(handler: RequestListener) {
+  const server = createServer(handler);
+  server.listen(0);
   await once(server, 'listening');
   servers.push(server);
-  return { ...fake, base: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
+async function startServer(secret?: string) {
+  const fake = fakeContext();
+  const app = express();
+  keystoneMcp({ secret })(app, fake.commonContext);
+  return { ...fake, base: await listen(app) };
 }
 
 const listTools = (base: string, accessToken?: string) =>
@@ -48,7 +56,12 @@ async function openSignIn(base: string, redirectUri = CLAUDE_REDIRECT) {
   return { clientId, verifier, page, html: await page.text() };
 }
 
-describe('OAuth for /mcp', () => {
+describe.each([
+  { mode: 'in memory', secret: undefined },
+  { mode: 'sealed', secret: SECRET },
+])('OAuth for /mcp, $mode', ({ secret }) => {
+  const start = () => startServer(secret);
+
   it('answers an unauthenticated POST with 401 and a resource_metadata pointer to metadata that names S256', async () => {
     const { base } = await start();
     const response = await listTools(base);
@@ -189,7 +202,7 @@ describe('OAuth for /mcp', () => {
     expect(location.searchParams.get('state')).toBe('xyz');
   });
 
-  it('exchanges a code once, and only with its PKCE verifier and redirect URI', async () => {
+  it('exchanges a code only with its PKCE verifier and redirect URI, and in memory only once', async () => {
     const { base } = await start();
     const codeFor = async () => {
       const { clientId, verifier, html } = await openSignIn(base);
@@ -204,7 +217,8 @@ describe('OAuth for /mcp', () => {
     const first = await exchange({});
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({ token_type: 'Bearer', expires_in: 3600 });
-    expect((await exchange({})).body.error).toBe('invalid_grant');
+    // A sealed code works until it expires: the server keeps no record of its use.
+    if (!secret) expect((await exchange({})).body.error).toBe('invalid_grant');
 
     const otherRedirect = await codeFor();
     expect((await otherRedirect({ redirect_uri: 'https://claude.ai/other' })).body.error).toBe('invalid_grant');
@@ -224,13 +238,14 @@ describe('OAuth for /mcp', () => {
     expect((await exchangeWithoutRedirect({})).status).toBe(200);
   });
 
-  it('rotates the refresh token: the new pair works and the old refresh token gets invalid_grant', async () => {
+  it('rotates the refresh token: the new pair works, and in memory the old refresh token gets invalid_grant', async () => {
     const { base } = await start();
     const { clientId, refreshToken } = await signIn(base);
     const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
     expect(refreshed.status).toBe(200);
     expect(refreshed.body.refresh_token).not.toBe(refreshToken);
     expect((await listTools(base, refreshed.body.access_token)).status).toBe(200);
+    if (secret) return;
     const again = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
     expect(again).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
   });
@@ -252,18 +267,14 @@ describe('OAuth for /mcp', () => {
     // keystone dev serves each rebuild from a new Express app, a new context and a new keystoneMcp() on the same server.
     const first = fakeContext();
     let current = express();
-    keystoneMcp()(current, first.commonContext);
-    const server = createServer((req, res) => current(req, res));
-    server.listen(0);
-    await once(server, 'listening');
-    servers.push(server);
-    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    keystoneMcp({ secret })(current, first.commonContext);
+    const base = await listen((req, res) => current(req, res));
     const { clientId, accessToken, refreshToken } = await signIn(base);
 
     const rebuilt = fakeContext();
     for (const [token, session] of first.sessions) rebuilt.sessions.set(token, session);
     current = express();
-    keystoneMcp()(current, rebuilt.commonContext);
+    keystoneMcp({ secret })(current, rebuilt.commonContext);
     expect((await listTools(base, accessToken)).status).toBe(200);
     expect(rebuilt.requests.at(-1)?.headers.authorization).toBe('Bearer keystone-session-1');
     const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
@@ -274,5 +285,97 @@ describe('OAuth for /mcp', () => {
     const schema = buildSchema('type Query { posts: [String] }');
     const context = { ...fakeContext().commonContext, graphql: { schema, run: async () => ({}) } };
     expect(() => keystoneMcp()(express(), context)).toThrow(/authenticate<List>WithPassword/);
+  });
+});
+
+describe('sealed sign-ins', () => {
+  afterEach(() => void vi.useRealTimers());
+
+  /**
+   * Several servers behind one host, as processes behind a load balancer. Each has its own copy of the package, as a
+   * new process or a restart has, and all share one Keystone. `serve(i)` picks the server of the next requests.
+   */
+  async function serversWith(...secrets: string[]) {
+    const fake = fakeContext();
+    const apps: express.Express[] = [];
+    for (const secret of secrets) {
+      vi.resetModules();
+      const { keystoneMcp: fresh } = await import('../src/mount.js');
+      const app = express();
+      fresh({ secret })(app, fake.commonContext);
+      apps.push(app);
+    }
+    let current = apps[0]!;
+    const base = await listen((req, res) => current(req, res));
+    return { ...fake, base, serve: (i: number) => void (current = apps[i]!) };
+  }
+
+  it('continues a sign-in on a second server with the same secret, and serves and refreshes on either', async () => {
+    const { base, serve } = await serversWith(SECRET, SECRET);
+    const { clientId, verifier, html } = await openSignIn(base);
+    serve(1);
+    const signedIn = await submitSignIn(base, { transaction: transactionOf(html), identity: ADMIN.email, secret: ADMIN.password, decision: 'allow' });
+    const code = new URL(signedIn.headers.get('location')!).searchParams.get('code')!;
+    serve(0);
+    const exchanged = await token(base, { grant_type: 'authorization_code', client_id: clientId, code, code_verifier: verifier, redirect_uri: CLAUDE_REDIRECT });
+    expect(exchanged.status).toBe(200);
+    let refreshToken = exchanged.body.refresh_token!;
+    for (const i of [1, 0, 1]) {
+      serve(i);
+      const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
+      expect(refreshed.status).toBe(200);
+      refreshToken = refreshed.body.refresh_token!;
+      serve(1 - i);
+      expect((await listTools(base, refreshed.body.access_token)).status).toBe(200);
+    }
+  });
+
+  it('keeps a client signed in after a restart', async () => {
+    const { base, serve } = await serversWith(SECRET, SECRET);
+    const { clientId, accessToken, refreshToken } = await signIn(base);
+    serve(1);
+    expect((await listTools(base, accessToken)).status).toBe(200);
+    expect((await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken })).status).toBe(200);
+  });
+
+  /**
+   * The value changed in one character: the first, the middle, and the last one. The last character can carry spare bits
+   * that base64 decoding ignores, so the last position gets every other character.
+   */
+  function changedInOneCharacter(value: string): string[] {
+    const changed = (at: number, char: string) => value.slice(0, at) + char + value.slice(at + 1);
+    const other = (at: number) => (value[at] === 'A' ? 'B' : 'A');
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const last = value.length - 1;
+    return [changed(0, other(0)), changed(last >> 1, other(last >> 1)), ...[...alphabet].filter((c) => c !== value[last]).map((c) => changed(last, c))];
+  }
+
+  it('refuses a value sealed with another secret, a token of another kind, and a value changed in one character', async () => {
+    const { base, serve } = await serversWith(SECRET, OTHER_SECRET);
+    const { clientId, accessToken, refreshToken } = await signIn(base);
+    expect((await listTools(base, accessToken)).status).toBe(200);
+    expect((await listTools(base, refreshToken)).status).toBe(401);
+    for (const value of changedInOneCharacter(accessToken)) expect((await listTools(base, value)).status).toBe(401);
+    // This length leaves spare bits in the last character, so the client_id checks that case.
+    expect(clientId.length % 4).not.toBe(0);
+    const { challenge } = pkce();
+    for (const value of changedInOneCharacter(clientId)) {
+      const params = { client_id: value, redirect_uri: CLAUDE_REDIRECT, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256' };
+      expect((await authorize(base, params)).status).toBe(400);
+    }
+
+    serve(1);
+    expect((await listTools(base, accessToken)).status).toBe(401);
+    expect((await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken })).status).toBe(400);
+  });
+
+  it('refuses an access token after it expires, and refresh then works', async () => {
+    const { base } = await startServer(SECRET);
+    const { clientId, accessToken, refreshToken } = await signIn(base);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 3601 * 1000);
+    expect((await listTools(base, accessToken)).status).toBe(401);
+    const refreshed = await token(base, { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshToken });
+    expect((await listTools(base, refreshed.body.access_token)).status).toBe(200);
   });
 });

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
@@ -30,10 +30,7 @@ const REFRESH_TOKEN_SECONDS = 30 * 24 * 60 * 60;
 const CODE_SECONDS = 5 * 60;
 const SIGN_IN_SECONDS = 10 * 60;
 const SIGN_IN_ATTEMPTS = 5;
-/**
- * Above this size a store drops its expired entries. Registration and the authorize step need no sign-in,
- * so the stores of clients and pending sign-ins also drop their oldest entries above it.
- */
+/** Above this size a memory store drops its expired entries, and a capped store also its oldest entries. */
 const MAX_ENTRIES = 1000;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -63,7 +60,7 @@ export function findPasswordMutation(schema: GraphQLSchema): PasswordMutation | 
 
 interface Grant {
   clientId: string;
-  /** The Keystone session token. It stays on the server; `callTool` sends it to `withRequest`. */
+  /** The Keystone session token. Only the server reads it; `callTool` sends it to `withRequest`. */
   sessionToken: string;
   resource: string;
   scopes: string[];
@@ -74,11 +71,13 @@ interface Expiring {
 }
 
 interface PendingSignIn extends Expiring {
-  client: OAuthClientInformationFull;
-  params: AuthorizationParams;
+  clientId: string;
+  /** The authorization request. Its resource is in `resource`. */
+  params: Omit<AuthorizationParams, 'resource'>;
+  /** The resource URL of the grant: the requested one, or the URL of this endpoint. */
+  resource: string;
   /** `true` when the authorization request sent `redirect_uri`. The SDK fills `params.redirectUri` when it is absent. */
   redirectUriSent: boolean;
-  attempts: number;
 }
 
 interface CodeRecord extends Grant, Expiring {
@@ -100,36 +99,111 @@ export interface McpOAuth {
   authenticate(req: Request, res: Response): Promise<McpContext | undefined>;
 }
 
-interface OAuthStores {
-  clients: Map<string, OAuthClientInformationFull>;
-  pendingSignIns: Map<string, PendingSignIn>;
-  codes: Map<string, CodeRecord>;
-  accessTokens: Map<string, TokenRecord>;
-  refreshTokens: Map<string, TokenRecord>;
+/** The value behind each kind of key. A client is kept without its `client_id`, because the `client_id` is the key. */
+interface Values {
+  client: Omit<OAuthClientInformationFull, 'client_id'>;
+  signIn: PendingSignIn;
+  code: CodeRecord;
+  access: TokenRecord;
+  refresh: TokenRecord;
+}
+
+type Kind = keyof Values;
+
+/** The OAuth state of one MCP path. A key is what the client holds: a `client_id`, a sign-in transaction, a code or a token. */
+interface Vault {
+  put<K extends Kind>(kind: K, value: Values[K]): string;
+  /** The value of a key, or `undefined` when the key is unknown, changed, ended or expired. */
+  get<K extends Kind>(kind: K, key: string): Values[K] | undefined;
+  /** Ends a key before it expires. A sealed key cannot end early, so the sealed vault does nothing. */
+  drop(kind: Kind, key: string): void;
+}
+
+/** Registration and the authorize step need no sign-in, so these stores also drop their oldest entries above `MAX_ENTRIES`. */
+const CAPPED: Record<Kind, boolean> = { client: true, signIn: true, code: false, access: false, refresh: false };
+
+/** Keeps the values in the memory of the process. A key is a random token. */
+function memoryVault(): Vault {
+  const stores = new Map<Kind, Map<string, unknown>>();
+  const storeOf = (kind: Kind) => {
+    let store = stores.get(kind);
+    if (!store) stores.set(kind, (store = new Map()));
+    return store;
+  };
+  return {
+    put(kind, value) {
+      const key = newToken();
+      remember(storeOf(kind), key, value, CAPPED[kind]);
+      return key;
+    },
+    get: <K extends Kind>(kind: K, key: string) => live(storeOf(kind) as Map<string, Values[K]>, key),
+    drop: (kind, key) => void storeOf(kind).delete(key),
+  };
+}
+
+const IV_BYTES = 12;
+const TAG_BYTES = 16;
+
+/**
+ * Keeps no state: a key is its value, sealed with AES-256-GCM under a key derived from `secret`. Any process with the same
+ * secret opens it, and a client cannot read or change it. The path and the kind are authenticated data, so a key of one
+ * kind or path does not open as another.
+ */
+function sealedVault(secret: string, path: string): Vault {
+  const key = Buffer.from(hkdfSync('sha256', secret, 'keystone-mcp', 'oauth state', 32));
+  const aad = (kind: Kind) => Buffer.from(`${path}\n${kind}`);
+  return {
+    put(kind, value) {
+      const iv = randomBytes(IV_BYTES);
+      const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_BYTES }).setAAD(aad(kind));
+      const sealed = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+      return Buffer.concat([iv, cipher.getAuthTag(), sealed]).toString('base64url');
+    },
+    get<K extends Kind>(kind: K, sealedKey: string) {
+      const data = Buffer.from(sealedKey, 'base64url');
+      // Base64 decoding skips foreign characters and ignores the spare bits of the last one, so compare the round trip.
+      if (data.length <= IV_BYTES + TAG_BYTES || data.toString('base64url') !== sealedKey) return undefined;
+      let value: Values[K];
+      try {
+        const decipher = createDecipheriv('aes-256-gcm', key, data.subarray(0, IV_BYTES), { authTagLength: TAG_BYTES })
+          .setAAD(aad(kind))
+          .setAuthTag(data.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
+        value = JSON.parse(Buffer.concat([decipher.update(data.subarray(IV_BYTES + TAG_BYTES)), decipher.final()]).toString('utf8'));
+      } catch {
+        return undefined;
+      }
+      return unexpired(value) ? value : undefined;
+    },
+    drop() {},
+  };
+}
+
+interface PathState {
+  memory: Vault;
+  /** The password checks of each sign-in transaction, in this process. An ended sign-in counts `SIGN_IN_ATTEMPTS`. */
+  signInAttempts: Map<string, Expiring & { count: number }>;
 }
 
 /**
- * The stores of each MCP path, for the life of the process. `keystone dev` calls extendExpressApp again after each
+ * The state of each MCP path, for the life of the process. `keystone dev` calls extendExpressApp again after each
  * rebuild, with a new Express app and context, but keeps this module loaded, so clients and tokens survive a rebuild.
  */
-const storesByPath = new Map<string, OAuthStores>();
+const stateByPath = new Map<string, PathState>();
 
-function storesOf(path: string): OAuthStores {
-  let stores = storesByPath.get(path);
-  if (!stores) {
-    stores = { clients: new Map(), pendingSignIns: new Map(), codes: new Map(), accessTokens: new Map(), refreshTokens: new Map() };
-    storesByPath.set(path, stores);
-  }
-  return stores;
+function stateOf(path: string): PathState {
+  let state = stateByPath.get(path);
+  if (!state) stateByPath.set(path, (state = { memory: memoryVault(), signInAttempts: new Map() }));
+  return state;
 }
 
 /**
  * Mounts an OAuth 2.1 authorization server for the MCP endpoint at `path`: metadata, dynamic client registration,
  * an authorize step with a sign-in and consent page, and a token endpoint with S256 PKCE and refresh-token rotation.
- * Sign-in runs the app's password mutation, so Keystone stays the only user store. State is in the memory of the
- * process and survives a new mount at the same path.
+ * Sign-in runs the app's password mutation, so Keystone stays the only user store. With `secret`, clients, sign-ins,
+ * codes and tokens are sealed values that need no server state. Without it, they are in the memory of the process and
+ * survive a new mount at the same path.
  */
-export function mountOAuth(app: Express, commonContext: McpContext, path: string): McpOAuth {
+export function mountOAuth(app: Express, commonContext: McpContext, path: string, secret?: string): McpOAuth {
   const mutation = findPasswordMutation(commonContext.graphql.schema);
   if (!mutation) {
     throw new Error(
@@ -145,10 +219,16 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     revoke: `${path}/oauth/revoke`,
   };
 
-  const { clients, pendingSignIns, codes, accessTokens, refreshTokens } = storesOf(path);
+  const vault = secret ? sealedVault(secret, path) : stateOf(path).memory;
+  const { signInAttempts } = stateOf(path);
+
+  const clientOf = (clientId: string): OAuthClientInformationFull | undefined => {
+    const client = vault.get('client', clientId);
+    return client && { client_id: clientId, ...client };
+  };
 
   const clientsStore: OAuthRegisteredClientsStore = {
-    getClient: (clientId) => clients.get(clientId),
+    getClient: clientOf,
     registerClient(client) {
       for (const uri of client.redirect_uris) {
         const url = new URL(uri);
@@ -156,24 +236,21 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
           throw new InvalidClientMetadataError(`redirect_uri must use https, or http on a loopback host: ${uri}`);
         }
       }
-      const full = client as OAuthClientInformationFull;
-      remember(clients, full.client_id, full, true);
-      return full;
+      // The SDK sets a random client_id. The vault key replaces it.
+      const { client_id: _, ...metadata } = client as OAuthClientInformationFull;
+      return { client_id: vault.put('client', metadata), ...metadata };
     },
   };
 
   /** Issues an access token and a refresh token for one grant. */
-  function issueTokens(grant: Grant): OAuthTokens {
-    const accessToken = newToken();
-    const refreshToken = newToken();
-    remember(accessTokens, accessToken, { ...grant, expiresAt: now() + ACCESS_TOKEN_SECONDS });
-    remember(refreshTokens, refreshToken, { ...grant, expiresAt: now() + REFRESH_TOKEN_SECONDS });
+  function issueTokens({ clientId, sessionToken, resource, scopes }: Grant): OAuthTokens {
+    const grant: Grant = { clientId, sessionToken, resource, scopes };
     return {
-      access_token: accessToken,
+      access_token: vault.put('access', { ...grant, expiresAt: now() + ACCESS_TOKEN_SECONDS }),
       token_type: 'Bearer',
       expires_in: ACCESS_TOKEN_SECONDS,
-      refresh_token: refreshToken,
-      ...(grant.scopes.length ? { scope: grant.scopes.join(' ') } : {}),
+      refresh_token: vault.put('refresh', { ...grant, expiresAt: now() + REFRESH_TOKEN_SECONDS }),
+      ...(scopes.length ? { scope: scopes.join(' ') } : {}),
     };
   }
 
@@ -182,27 +259,32 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
 
     async authorize(client, params, res) {
       const req = res.req as Request;
+      const { resource: requested, ...request } = params;
       const resource = resourceUrl(req, path);
-      if (params.resource && !sameResource(params.resource.href, resource)) {
+      if (requested && !sameResource(requested.href, resource)) {
         throw new InvalidTargetError(`This server is the resource ${resource}.`);
       }
-      const id = newToken();
       // The SDK reads the authorization parameters from the body of a POST and from the query of a GET.
       const sent = (req.method === 'POST' ? req.body : req.query) as Record<string, unknown> | undefined;
-      const redirectUriSent = sent?.redirect_uri !== undefined;
-      remember(pendingSignIns, id, { client, params, redirectUriSent, attempts: 0, expiresAt: now() + SIGN_IN_SECONDS }, true);
+      const id = vault.put('signIn', {
+        clientId: client.client_id,
+        params: request,
+        resource: requested ? requested.href : resource,
+        redirectUriSent: sent?.redirect_uri !== undefined,
+        expiresAt: now() + SIGN_IN_SECONDS,
+      });
       sendSignInPage(res, 200, { id, client, redirectUri: params.redirectUri, mutation, action: paths.signIn });
     },
 
     async challengeForAuthorizationCode(client, code) {
-      const record = live(codes, code);
+      const record = vault.get('code', code);
       if (!record || record.clientId !== client.client_id) throw new InvalidGrantError('The authorization code is not valid.');
       return record.codeChallenge;
     },
 
     async exchangeAuthorizationCode(client, code, _codeVerifier, redirectUri, resource) {
-      const record = live(codes, code);
-      codes.delete(code);
+      const record = vault.get('code', code);
+      vault.drop('code', code);
       if (!record || record.clientId !== client.client_id) throw new InvalidGrantError('The authorization code is not valid.');
       if (redirectUri === undefined ? record.redirectUriSent : redirectUri !== record.redirectUri) {
         throw new InvalidGrantError('redirect_uri is not the one of the authorization request.');
@@ -212,9 +294,9 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     },
 
     async exchangeRefreshToken(client, refreshToken, _scopes, resource) {
-      const record = live(refreshTokens, refreshToken);
+      const record = vault.get('refresh', refreshToken);
       if (!record || record.clientId !== client.client_id) throw new InvalidGrantError('The refresh token is not valid.');
-      refreshTokens.delete(refreshToken);
+      vault.drop('refresh', refreshToken);
       if (resource && !sameResource(resource.href, record.resource)) throw new InvalidTargetError('resource does not match.');
       if (!(await sessionOf(commonContext, record.sessionToken))) {
         throw new InvalidGrantError('Your session has ended. Sign in again.');
@@ -223,14 +305,14 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     },
 
     async verifyAccessToken(token): Promise<AuthInfo> {
-      const record = live(accessTokens, token);
+      const record = vault.get('access', token);
       if (!record) throw new InvalidTokenError('The access token is not valid.');
       return { token, clientId: record.clientId, scopes: record.scopes, expiresAt: record.expiresAt, resource: new URL(record.resource) };
     },
 
     async revokeToken(client, { token }: OAuthTokenRevocationRequest) {
-      for (const store of [accessTokens, refreshTokens]) {
-        if (store.get(token)?.clientId === client.client_id) store.delete(token);
+      for (const kind of ['access', 'refresh'] as const) {
+        if (vault.get(kind, token)?.clientId === client.client_id) vault.drop(kind, token);
       }
     },
   };
@@ -277,20 +359,26 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
     res.set('Cache-Control', 'no-store');
     const body = (req.body ?? {}) as Record<string, unknown>;
     const id = typeof body.transaction === 'string' ? body.transaction : '';
-    const pending = live(pendingSignIns, id);
-    if (!pending) {
+    const pending = vault.get('signIn', id);
+    const attempts = live(signInAttempts, id)?.count ?? 0;
+    const client = pending && attempts < SIGN_IN_ATTEMPTS ? clientOf(pending.clientId) : undefined;
+    if (!pending || !client) {
       res.status(400).type('text/plain').send('This sign-in has expired. Start the connection again in your MCP client.');
       return;
     }
-    const { client, params, redirectUriSent } = pending;
+    const { params, resource, redirectUriSent, expiresAt } = pending;
+    /** Records the password checks of this sign-in, and ends it at the limit. A sealed transaction ends in this process only. */
+    const countAttempts = (count: number) => {
+      remember(signInAttempts, id, { count, expiresAt }, true);
+      if (count >= SIGN_IN_ATTEMPTS) vault.drop('signIn', id);
+    };
     if (body.decision !== 'allow') {
-      pendingSignIns.delete(id);
+      countAttempts(SIGN_IN_ATTEMPTS);
       res.redirect(302, redirectWith(params, { error: 'access_denied', error_description: 'The user denied access.' }));
       return;
     }
     // Count the attempt before the password check, so guesses that arrive at the same time count too.
-    pending.attempts += 1;
-    if (pending.attempts >= SIGN_IN_ATTEMPTS) pendingSignIns.delete(id);
+    countAttempts(attempts + 1);
     let sessionToken: string | undefined;
     try {
       sessionToken = await signIn(req, commonContext, mutation, String(body.identity ?? ''), String(body.secret ?? ''));
@@ -306,16 +394,15 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
         redirectUri: params.redirectUri,
         mutation,
         action: paths.signIn,
-        error: pending.attempts >= SIGN_IN_ATTEMPTS ? 'Too many failed sign-ins. Start the connection again.' : 'The sign-in failed. Check your email and password.',
+        error: attempts + 1 >= SIGN_IN_ATTEMPTS ? 'Too many failed sign-ins. Start the connection again.' : 'The sign-in failed. Check your email and password.',
       });
       return;
     }
-    pendingSignIns.delete(id);
-    const code = newToken();
-    remember(codes, code, {
+    countAttempts(SIGN_IN_ATTEMPTS);
+    const code = vault.put('code', {
       clientId: client.client_id,
       sessionToken,
-      resource: params.resource ? params.resource.href : resourceUrl(req, path),
+      resource,
       scopes: params.scopes ?? [],
       codeChallenge: params.codeChallenge,
       redirectUri: params.redirectUri,
@@ -332,7 +419,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       const metadataUrl = `${origin(req)}/.well-known/oauth-protected-resource${path}`;
       const header = req.headers.authorization ?? '';
       const match = /^Bearer\s+(\S+)$/i.exec(header);
-      const record = match ? live(accessTokens, match[1]!) : undefined;
+      const record = match ? vault.get('access', match[1]!) : undefined;
       if (!record || !sameResource(record.resource, resource)) {
         sendUnauthorized(res, metadataUrl, header ? 'The access token is not valid.' : 'Sign in to use this server.');
         return undefined;
@@ -341,7 +428,7 @@ export function mountOAuth(app: Express, commonContext: McpContext, path: string
       req.headers.authorization = `Bearer ${record.sessionToken}`;
       const context = await commonContext.withRequest(req, res);
       if (!context.session) {
-        accessTokens.delete(match![1]!);
+        vault.drop('access', match![1]!);
         sendUnauthorized(res, metadataUrl, 'Your session has ended. Sign in again.');
         return undefined;
       }
@@ -462,19 +549,24 @@ function now(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+/** `true` for a value without `expiresAt`, or one whose `expiresAt` is in the future. */
+function unexpired(value: unknown): boolean {
+  return ((value as Partial<Expiring>).expiresAt ?? Infinity) > now();
+}
+
 /** Returns an unexpired entry and drops an expired one. */
-function live<T extends Expiring>(store: Map<string, T>, key: string): T | undefined {
+function live<T>(store: Map<string, T>, key: string): T | undefined {
   const value = store.get(key);
-  if (value && value.expiresAt <= now()) store.delete(key);
-  return value && value.expiresAt > now() ? value : undefined;
+  if (value === undefined || unexpired(value)) return value;
+  store.delete(key);
+  return undefined;
 }
 
 /** Adds an entry. Above `MAX_ENTRIES` it drops expired entries and, when `capped`, the oldest entries. */
 function remember<T>(store: Map<string, T>, key: string, value: T, capped = false): void {
   store.set(key, value);
   if (store.size <= MAX_ENTRIES) return;
-  const time = now();
-  for (const [k, v] of store) if (((v as Partial<Expiring>).expiresAt ?? Infinity) <= time) store.delete(k);
+  for (const [k, v] of store) if (!unexpired(v)) store.delete(k);
   if (!capped) return;
   for (const k of store.keys()) {
     if (store.size <= MAX_ENTRIES) break;
