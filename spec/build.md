@@ -16,9 +16,11 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F008-a-developer-sees-mcp-work-on-localhost-in-minutes-and-gets-a-message-for-each-wrong-setting` (🟠 ACTIVE): A developer sees /mcp work on localhost in minutes and gets a message for each wrong setting
+
 ## NEXT
 
-- Nothing planned.
+- 🔴 Sign-ins survive a restart and work across processes, with a new `secret` option (F009); waits for the owner to approve the sixth option.
 
 ## PROVEN
 
