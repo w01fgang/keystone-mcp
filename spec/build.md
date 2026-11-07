@@ -8,17 +8,19 @@ Status marks are prose only: 🟠 ACTIVE · 🔴 PLANNED · 🟢 PROVEN · ⚪ D
 
 ## TRACK
 
-- 🟠 Publish `keystone-mcp` 0.1.0 to npm (owner request, 2026-11-07), with a shop example in `examples/shop` (F003). Constraint stays: no change to `@keystone-6/core`; the mount uses `extendExpressApp` only. The publish waits for the owner's choice of package name and source repository.
-- 🟠 Admins use `/mcp` from Claude Desktop by signing in with their browser (F002): OAuth on top of Keystone's own sign-in. Constraint: no OAuth state in Keystone lists; Keystone access control stays the only authority.
+- 🟠 Publish `keystone-mcp` 0.1.0 to npm as `keystone-mcp` from the public GitHub repository `w01fgang/keystone-mcp`, MIT, copyright w01fgang (owner delegated the choices, 2026-11-07). The publish waits for neutral error text (F005). Constraint stays: no change to `@keystone-6/core`; the mount uses `extendExpressApp` only.
+- 🟢 Admins use `/mcp` from Claude Desktop by signing in with their browser (F002); the owner confirmed it in Claude Desktop on 2026-11-07.
 - **Standing models (owner, 2026-11-06):** OMP at `high` for every role; Pi is not installed on this seat. Complex work uses Opus 5.5 (`--engine omp --provider anthropic --model claude-opus-5-5 --thinking high`): the coordinator, feature slices, repairs that need design, reviews, research and judges. Simple work uses Sonnet 5.5 (`--engine omp --provider anthropic --model claude-sonnet-5-5 --thinking high`): scouts, spec keepers, picture refreshes, quality passes, finish resumes and mechanical repairs. When unsure, use Opus. Pass all four flags explicitly. Do not substitute another model when the route fails.
 
 ## NOW
 
 <!-- Generated from spec/features/active/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->
 
+- `F005-error-text-from-mcp-names-no-technology` (🟠 ACTIVE): Error text from /mcp names no technology
+
 ## NEXT
 
-- Publish to npm: package metadata, `LICENSE`, a `prepublishOnly` check, then `npm publish` by the owner's account once the name and repository are chosen.
+- Publish to npm after F005 lands: run `prepublishOnly`, check `npm pack --dry-run`, push to GitHub, `npm publish`.
 
 ## PROVEN
 
