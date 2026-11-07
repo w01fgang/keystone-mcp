@@ -53,10 +53,10 @@ export async function token(base: string, fields: Record<string, string>, path =
 }
 
 /**
- * Runs the whole flow: DCR, authorize, sign-in with the fixture's admin, and the code exchange.
+ * Runs the whole flow: DCR, authorize, sign-in, and the code exchange. The default user is the fixture's admin.
  * Returns the token response and the `client_id`.
  */
-export async function signIn(base: string, path = '/mcp') {
+export async function signIn(base: string, path = '/mcp', user = ADMIN) {
   const clientId = await register(base, [CLAUDE_REDIRECT], path);
   const { verifier, challenge } = pkce();
   const page = await authorize(
@@ -65,7 +65,7 @@ export async function signIn(base: string, path = '/mcp') {
     path,
   );
   const transaction = transactionOf(await page.text());
-  const signedIn = await submitSignIn(base, { transaction, identity: ADMIN.email, secret: ADMIN.password, decision: 'allow' }, path);
+  const signedIn = await submitSignIn(base, { transaction, identity: user.email, secret: user.password, decision: 'allow' }, path);
   const code = new URL(signedIn.headers.get('location')!).searchParams.get('code')!;
   const { body } = await token(
     base,

@@ -1,0 +1,6 @@
+# `keystone build` writes these when test/fields.test.ts starts.
+/.keystone/
+/generated/
+/prisma.config.ts
+/schema.graphql
+/schema.prisma
