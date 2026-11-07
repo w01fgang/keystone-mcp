@@ -123,6 +123,39 @@ const clientRecord = OAuthClientInformationFullSchema.omit({ client_id: true });
 
 type Kind = keyof Values;
 
+/** The parts of a grant and of a deadline, as the sealed vault reads them back. */
+const grantFields = { clientId: z.string(), sessionToken: z.string(), resource: z.string(), scopes: z.array(z.string()) };
+const tokenRecord = z.object({ ...grantFields, expiresAt: z.number() });
+
+/** A parser for each kind of value. */
+type ValueParsers = { [K in Kind]: z.ZodType<Values[K]> };
+
+/** Parses the JSON that the sealed vault opens into the value of its kind. */
+const sealedValues: ValueParsers = {
+  client: clientRecord,
+  signIn: z.object({
+    clientId: z.string(),
+    params: z.object({
+      state: z.string().optional(),
+      scopes: z.array(z.string()).optional(),
+      codeChallenge: z.string(),
+      redirectUri: z.string(),
+    }),
+    resource: z.string(),
+    redirectUriSent: z.boolean(),
+    expiresAt: z.number(),
+  }),
+  code: z.object({
+    ...grantFields,
+    expiresAt: z.number(),
+    codeChallenge: z.string(),
+    redirectUri: z.string(),
+    redirectUriSent: z.boolean(),
+  }),
+  access: tokenRecord,
+  refresh: tokenRecord,
+};
+
 /** The authorization request as the client sent it. The SDK has checked that `redirect_uri`, when present, is a URL. */
 const authorizationRequest = z.object({ redirect_uri: z.string().optional() });
 
@@ -206,7 +239,9 @@ function sealedVault(secret: string, path: string): Vault {
           .setAAD(aad(kind))
           .setAuthTag(data.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
 
-        value = JSON.parse(Buffer.concat([decipher.update(data.subarray(IV_BYTES + TAG_BYTES)), decipher.final()]).toString('utf8'));
+        // A key that another version of this package sealed may hold another shape; it reads as an unknown key.
+        const opened = Buffer.concat([decipher.update(data.subarray(IV_BYTES + TAG_BYTES)), decipher.final()]).toString('utf8');
+        value = sealedValues[kind].parse(JSON.parse(opened));
       } catch {
         return undefined;
       }

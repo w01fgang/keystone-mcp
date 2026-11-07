@@ -19,13 +19,81 @@ export interface Call {
 /** A JSON number. `JSON.parse` reads a number beyond the range of a double, for example `1e400`, as `Infinity`. */
 const jsonNumber = z.union([z.number(), z.literal([Infinity, -Infinity])]);
 
-/** A JSON value, as `JSON.parse` returns it. */
-const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([z.string(), jsonNumber, z.boolean(), z.null(), z.array(jsonValue), z.record(z.string(), jsonValue)]),
-);
+/**
+ * One level of a JSON value: a leaf, the items of an array, or the entries of an object.
+ * `Object.entries` keeps a `__proto__` key; a zod object or record drops it, and the call would run without it.
+ */
+const jsonLevel = z.union([
+  z.union([z.string(), jsonNumber, z.boolean(), z.null()]).transform((leaf) => ({ leaf })),
+  z.array(z.unknown()).transform((items) => ({ items })),
+  z.instanceof(Object).transform((object) => ({ entries: Object.entries(object) })),
+]);
 
-/** Parses the `args` of `callTool` into `CallInput.args`. */
-export const callArguments = z.record(z.string(), jsonValue.optional());
+/** A value of `callTool` `args` that is not parsed yet, where it is in `args`, and how to store its parsed value. */
+interface PendingValue {
+  input: unknown;
+  key: string | number;
+  /** The value that holds this one; `undefined` for an argument. */
+  parent: PendingValue | undefined;
+  store: (value: JsonValue) => void;
+}
+
+/** Stores `value` as an own key of `object`, also when the key is `__proto__`. */
+function storeKey(object: JsonObject, key: string, value: JsonValue) {
+  Object.defineProperty(object, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/** The keys from the argument name down to the value. */
+function pathOf(value: PendingValue) {
+  const path: (string | number)[] = [];
+
+  for (let step: PendingValue | undefined = value; step; step = step.parent) path.unshift(step.key);
+
+  return path;
+}
+
+/**
+ * Parses the `args` of `callTool` into `CallInput.args`. Every own key stays.
+ * A loop over a list of pending values reads the nesting, so deep input cannot overflow the call stack.
+ */
+export const callArguments = z.record(z.string(), z.unknown()).transform((args, context) => {
+  const parsed: JsonObject = {};
+
+  const pending: PendingValue[] = Object.entries(args)
+    .filter((argument) => argument[1] !== undefined)
+    .map(([name, input]) => ({ input, key: name, parent: undefined, store: (value) => storeKey(parsed, name, value) }));
+
+  for (let next = pending.pop(); next; next = pending.pop()) {
+    const parent = next;
+    const level = jsonLevel.safeParse(parent.input);
+
+    if (!level.success) {
+      context.addIssue({ code: 'custom', message: 'Expected a JSON value', path: pathOf(parent) });
+
+      return z.NEVER;
+    }
+
+    if ('leaf' in level.data) {
+      parent.store(level.data.leaf);
+    } else if ('items' in level.data) {
+      const items: JsonValue[] = [];
+      parent.store(items);
+
+      for (const [index, input] of level.data.items.entries()) {
+        pending.push({ input, key: index, parent, store: (value) => (items[index] = value) });
+      }
+    } else {
+      const object: JsonObject = {};
+      parent.store(object);
+
+      for (const [key, input] of level.data.entries) {
+        pending.push({ input, key, parent, store: (value) => storeKey(object, key, value) });
+      }
+    }
+  }
+
+  return parsed;
+});
 
 /** The name of the `take` argument that Keystone list queries accept. */
 const TAKE_ARG = 'take';

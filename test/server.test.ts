@@ -6,7 +6,7 @@ import { GraphQLError, locatedError } from 'graphql';
 import { buildCatalog } from '../src/catalog.js';
 import { buildInstructions } from '../src/instructions.js';
 import { createMcpServer, MAX_SELECT_PATHS } from '../src/server.js';
-import type { McpContext } from '../src/types.js';
+import type { JsonObject, McpContext } from '../src/types.js';
 import { fakeContext, schema } from './schema.js';
 
 async function connect(context: McpContext, queriesOnly = false, introspection = true) {
@@ -178,6 +178,34 @@ describe('createMcpServer', () => {
     const client = await connect(fakeContext().requestContext);
     const result = await client.callTool({ name: 'callTool', arguments: { operation: 'posts', args: { first: 1 } } });
     expect(JSON.parse(text(result)).errors[0]).toEqual({ message: expect.stringContaining('"first"'), extensions: { code: 'INVALID_INPUT' } });
+  });
+
+  // GraphQL's own input coercion recurses, so a stand-in `run` keeps the depth on the arguments parse alone.
+  it('callTool passes a filter nested 1000 levels deep on whole', async () => {
+    const runs: (JsonObject | undefined)[] = [];
+
+    const run = async ({ variables }: { variables?: JsonObject }) => {
+      runs.push(variables);
+
+      return { postsCount: 100 };
+    };
+
+    const client = await connect({ ...fakeContext().requestContext, graphql: { schema, run } });
+    let where = {};
+
+    for (let level = 0; level < 1000; level++) where = { AND: [where] };
+
+    const result = await client.callTool({ name: 'callTool', arguments: { operation: 'postsCount', args: { where } } });
+    expect(JSON.parse(text(result))).toEqual({ postsCount: 100 });
+    expect(JSON.stringify(runs)).toBe(JSON.stringify([{ where }]));
+  });
+
+  it('callTool passes a nested __proto__ key on, so the unknown filter field is rejected', async () => {
+    const client = await connect(fakeContext().requestContext);
+    const args = JSON.parse('{"where":{"__proto__":{"x":1}}}');
+    const result = await client.callTool({ name: 'callTool', arguments: { operation: 'postsCount', args } });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(text(result)).errors[0]).toEqual({ message: expect.stringContaining('"__proto__"'), extensions: { code: 'INVALID_INPUT' } });
   });
 
   it('callTool cannot run a mutation when queriesOnly is set', async () => {

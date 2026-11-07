@@ -68,12 +68,8 @@ export function createMcpServer({ catalog, context, takeLimit, introspection, in
         'select lists field paths from searchTool; without select, the call returns the top-level paths.',
       inputSchema: {
         operation: z.string().describe('The operation name from searchTool, for example "posts".'),
-        // The client sees the input side of the pipe, so the listed schema of each value stays `{}`.
-        args: z
-          .record(z.string(), z.unknown())
-          .pipe(callArguments)
-          .optional()
-          .describe('Argument values by argument name.'),
+        // The client sees the input side of the parse, so the listed schema of each value stays `{}`.
+        args: callArguments.optional().describe('Argument values by argument name.'),
         select: z
           .array(z.string())
           .max(MAX_SELECT_PATHS)
