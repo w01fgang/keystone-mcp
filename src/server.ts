@@ -114,7 +114,7 @@ function errorResult(message: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: message }] };
 }
 
-/** The codes that a failed `callTool` returns. Each one names what went wrong, not the technology that found it. */
+/** The codes that a failed `callTool` returns. Each one names what went wrong. */
 type ErrorCode = 'ACCESS_DENIED' | 'INVALID_INPUT' | 'SERVER_ERROR';
 
 /** The message for an error whose own message the agent must not read. */
