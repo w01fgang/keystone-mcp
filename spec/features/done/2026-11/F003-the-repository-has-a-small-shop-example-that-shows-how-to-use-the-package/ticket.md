@@ -1,5 +1,6 @@
 ---
 opened: 2026-11-07
+landed: 2026-11-07
 ---
 
 # F003 · The repository has a small shop example that shows how to use the package
